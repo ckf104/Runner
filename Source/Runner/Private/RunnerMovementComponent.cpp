@@ -1,11 +1,14 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "RunnerMovementComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "CoreGlobals.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/EngineTypes.h"
+#include "Engine/TimerHandle.h"
 #include "EngineUtils.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/Character.h"
@@ -13,6 +16,7 @@
 #include "Math/RotationMatrix.h"
 #include "Math/UnrealMathUtility.h"
 #include "Runner/RunnerCharacter.h"
+#include "TimerManager.h"
 #include "WorldGenerator.h"
 
 DECLARE_CYCLE_STAT(TEXT("Skateboard PhysWalking"), STAT_SkateboardPhysWalking, STATGROUP_Character);
@@ -335,6 +339,36 @@ void URunnerMovementComponent::UpdateSkateBoardRotation(float DeltaTime)
 void URunnerMovementComponent::HandleImpact(const FHitResult& Hit, float LastMoveTimeSlice, const FVector& RampVector)
 {
 	Super::HandleImpact(Hit, LastMoveTimeSlice, RampVector);
+	auto bWalkable = IsWalkable(Hit);
+	if (!bWalkable)
+	{
+		auto* HitComponent = Hit.GetComponent();
+		if (HitComponent)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::HandleImpact: Hit Object %s!"), *HitComponent->GetName());
+			auto* ISM = Cast<UInstancedStaticMeshComponent>(HitComponent);
+			if (ISM)
+			{
+				auto* BI = ISM->GetBodyInstance(FName(), true, Hit.Item);
+				BI->SetResponseToChannel(ECC_Pawn, ECR_Ignore);
+				// Restore the collision response after IgnoreTime
+				FTimerHandle Handle;
+				GetWorld()->GetTimerManager().SetTimer(
+						Handle, [BI]() {
+							if (BI)
+							{
+								BI->SetResponseToChannel(ECC_Pawn, ECR_Block);
+							}
+						},
+						IgnoreTime, false);
+			}
+		}
+		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
+		if (Runner)
+		{
+			Runner->TakeHitImpact(Hit);
+		}
+	}
 }
 
 bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, const FFindFloorResult& NewFloor)
@@ -762,3 +796,15 @@ void URunnerMovementComponent::PhysWalking2(float deltaTime, int32 Iterations)
 }
 
 #undef devCode
+
+void URunnerMovementComponent::StartThrust()
+{
+	DefaultMaxWalkingSpeed = MaxWalkSpeed;
+	MaxWalkSpeed = MaxThrustSpeed;
+	// TODO：要不要骤变一下速度？
+}
+
+void URunnerMovementComponent::StopThrust()
+{
+	MaxWalkSpeed = DefaultMaxWalkingSpeed;
+}

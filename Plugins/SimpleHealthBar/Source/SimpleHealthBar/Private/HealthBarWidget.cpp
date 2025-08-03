@@ -5,6 +5,8 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/OverlaySlot.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/PrimitiveComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Styling/SlateTypes.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -335,7 +337,91 @@ void UHealthBarWidget::SetupAdditionalBars(const TArray<FAdditionalHealthBarSetu
 	}
 }
 
+void UHealthBarWidget::SetupRunnerAdditionalBars(const TArray<FRunnerAdditionalHealthBarSetup>& SetupData)
+{
+	float AdditionalBorderHeight = 0.0f;
+	/**
+	* Loop through additional progress bars from setup data
+	* For each progress bar create a widget, setup it in the similar way as the main progress bar
+	* Store new widgets to access them later
+	*/
+	for (auto BarSetup : SetupData)
+	{
+		FAdditionalHealthBar HealthBar = FAdditionalHealthBar();
 
+		/** Create a container */
+		USizeBox* AdditionalSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+		if (AdditionalSizeBox)
+		{
+			if (VerticalBox)
+			{
+				VerticalBox->AddChild(AdditionalSizeBox);
+			}
+			AdditionalSizeBox->SetHeightOverride(BarSetup.Height);
+			AdditionalBorderHeight += BarSetup.Height;
+
+			/** Create a widget */
+			UProgressBar* AdditionalProgressBar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass());
+			if (AdditionalProgressBar)
+			{
+				FProgressBarStyle ProgressBarStyle = AdditionalProgressBar->GetWidgetStyle();
+
+				/* Create background material */
+				UMaterialInstanceDynamic* AdditionalBackgroundMaterial = UMaterialInstanceDynamic::Create(GetHealthBarMaterialAsset(BarSetup.DamageAnimationType), this);
+				if (AdditionalBackgroundMaterial)
+				{
+					if (BarSetup.Texture)
+					{
+						AdditionalBackgroundMaterial->SetTextureParameterValue("Texture", BarSetup.Texture);
+					}
+					AdditionalBackgroundMaterial->SetVectorParameterValue("Tint", FLinearColor(0.1f, 0.1f, 0.1f, 1.0f));
+					AdditionalBackgroundMaterial->SetScalarParameterValue("Animation Progress", 1.0f);
+					const FLinearColor DamageAnimationColor = BarSetup.DamageAnimationType.Type == EHealthBarAnimationType::Fade ? BarSetup.Color : BarSetup.DamageAnimationType.Color;
+					AdditionalBackgroundMaterial->SetVectorParameterValue("Animation Color", DamageAnimationColor);
+
+					ProgressBarStyle.BackgroundImage.SetResourceObject(AdditionalBackgroundMaterial);
+					// ProgressBarStyle.BackgroundImage.DrawAs = ESlateBrushDrawType::Image;
+				}
+
+				/* Create fill material */
+				UMaterialInstanceDynamic* AdditionalFillMaterial = UMaterialInstanceDynamic::Create(GetHealthBarMaterialAsset(BarSetup.HealAnimationType), this);
+				if (AdditionalFillMaterial)
+				{
+					if (BarSetup.Texture)
+					{
+						AdditionalFillMaterial->SetTextureParameterValue("Texture", BarSetup.Texture);
+					}
+					AdditionalFillMaterial->SetVectorParameterValue("Tint", BarSetup.Color);
+					AdditionalFillMaterial->SetScalarParameterValue("Animation Progress", 1.0f);
+					AdditionalFillMaterial->SetScalarParameterValue("Is Progress Inversed", 1.0f);
+					const FLinearColor HealAnimationColor = BarSetup.HealAnimationType.Type == EHealthBarAnimationType::Fade ? FLinearColor(0.1f, 0.1f, 0.1f, 1.0f) : BarSetup.HealAnimationType.Color;
+					AdditionalFillMaterial->SetVectorParameterValue("Animation Color", HealAnimationColor);
+					ProgressBarStyle.FillImage.SetResourceObject(AdditionalFillMaterial);
+					// ProgressBarStyle.FillImage.DrawAs = ESlateBrushDrawType::Image;
+				}
+				AdditionalProgressBar->SetWidgetStyle(ProgressBarStyle);
+
+				HealthBar.ProgressBar = AdditionalProgressBar;
+				AdditionalSizeBox->AddChild(AdditionalProgressBar);
+			}
+		}
+		const int NewBarIndex = AdditionalBars.Add(HealthBar);
+		AdditionalBarsDamageAnimations.Add(BarSetup.DamageAnimationType);
+		AdditionalBarsHealAnimations.Add(BarSetup.HealAnimationType);
+		AdditionalBarSetMaxAndCurrentValues(BarSetup.MaxValue, BarSetup.CurrentValue, NewBarIndex);
+	}
+
+	/** 
+	* With addition of new progress bars widget height is now larger
+	* Add combined height of all new progress bars to the border height
+	*/
+	if (UCanvasPanelSlot* BorderSlot = Cast<UCanvasPanelSlot>(Overlay->Slot))
+	{
+		FVector2D BorderSize = BorderSlot->GetSize();
+		BorderSize.Y += AdditionalBorderHeight;
+		BorderSlot->SetSize(BorderSize);
+	}
+}
 
 
 void UHealthBarWidget::SetMaxValue(const float MaxValue)
@@ -367,6 +453,38 @@ void UHealthBarWidget::AdditionalBarSetCurrentValue(const float CurrentValue, co
 		FAdditionalHealthBar& AdditionalBar = AdditionalBars[AdditionalBarIndex];
 		AdditionalBar.Current = FMath::Clamp(CurrentValue, 0, AdditionalBar.Max);
 		UpdateAdditionalProgressBarValue(AdditionalBar);
+	}
+}
+
+// TODO: 我原本是想给这个插件添加一个的功能，使得 additional bars 也能够播动画，试着写了一下发现不对
+// 主要是 HealthBarWidget 的 widget animation 这里绑定死了
+// 最好的办法是在 WBP HealthBarWidget 中新增加 Mana Bar 和与它相关的动画，但我现在懒得这样做了
+void UHealthBarWidget::RunnerAdditionalBarSetCurrentValue(const float CurrentValue, const int AdditionalBarIndex, const bool bAnimate)
+{
+	if (AdditionalBars.IsValidIndex(AdditionalBarIndex))
+	{
+		FAdditionalHealthBar& AdditionalBar = AdditionalBars[AdditionalBarIndex];
+		auto PreviousPercentage = AdditionalBar.ProgressBar->GetPercent();
+		AdditionalBar.Current = FMath::Clamp(CurrentValue, 0, AdditionalBar.Max);
+		UpdateAdditionalProgressBarValue(AdditionalBar);
+		auto Percentage = AdditionalBar.ProgressBar->GetPercent();
+
+		/**
+		* After progress bar value is updated play corresponding animation if needed
+		* Play damage animation if new value is less than previous
+		* Play heal animation if new value is greater than previous
+		*/
+		if (bAnimate)
+		{
+			if (Percentage < PreviousPercentage && DamageAnimation.Type != EHealthBarAnimationType::None)
+			{
+				PlayDamageAnimation(PreviousPercentage, Percentage);
+			}
+			if (Percentage > PreviousPercentage && HealAnimation.Type != EHealthBarAnimationType::None)
+			{
+				PlayHealAnimation(PreviousPercentage, Percentage);
+			}
+		}
 	}
 }
 
@@ -499,13 +617,13 @@ void UHealthBarWidget::UpdateProgressBarValue(bool bAnimate)
 		* Play damage animation if new value is less than previous
 		* Play heal animation if new value is greater than previous
 		*/
-		if (DamageAnimation.Type != EHealthBarAnimationType::None && bAnimate)
+		if (bAnimate)
 		{
-			if (Percentage < PreviousPercentage)
+			if (Percentage < PreviousPercentage && DamageAnimation.Type != EHealthBarAnimationType::None)
 			{
 				PlayDamageAnimation(PreviousPercentage, Percentage);
 			}
-			if (Percentage > PreviousPercentage)
+			if (Percentage > PreviousPercentage && HealAnimation.Type != EHealthBarAnimationType::None)
 			{
 				PlayHealAnimation(PreviousPercentage, Percentage);
 			}

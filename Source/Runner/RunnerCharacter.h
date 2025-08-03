@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "Public/RunnerMovementComponent.h"
 #include "Logging/LogMacros.h"
+#include "Templates/SubclassOf.h"
 #include "RunnerCharacter.generated.h"
 
 class USpringArmComponent;
@@ -48,6 +49,9 @@ class ARunnerCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
 	UInputAction* DownAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
+	UInputAction* ThrustAction;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	bool bAutoMove = false;
 
@@ -55,6 +59,8 @@ class ARunnerCharacter : public ACharacter
 
 public:
 	ARunnerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+
+	void TakeHitImpact(const FHitResult& Hit);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float TurnSpeedScale = 0.2f;
@@ -64,9 +70,6 @@ public:
 	
 	UFUNCTION(BlueprintCallable, Category = "Skate Input")
 	float GetTurnValue() const;
-
-	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "Skate Controller")
-	void ShowLandUI(ELevel LandLevel);
 
 protected:
 
@@ -78,6 +81,9 @@ protected:
 	
 	void Tick(float Delta) override;
 	void TurnDirection(float Delta);
+
+	void StartThrust();
+	void StopThrust();
 
 	void BeginPlay() override;
 
@@ -93,6 +99,60 @@ public:
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
+// 生命值和氮气
+	UPROPERTY(BlueprintReadWrite, Category = "Health")
+	float Health;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float MaxHealth = 100.0f;
+
+	UPROPERTY(BlueprintReadWrite, Category = "Health")
+	float Mana;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float MinimumThrustMana = 20.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float MaxMana = 100.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float ManaReduceSpeed = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float HitDamage = 15.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float HitSlomo = 0.1f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float HitSlomoTime = 0.5f;
+	
+	bool bThrusting = false;
+
+// UI Settings
+	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")
+	void ShowLandUI(ELevel LandLevel);
+
+	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")
+	void ShowDamageUI();
+
+	void InitUI();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+	TSubclassOf<class UHealthBarWidget> HealthBarWidgetClass;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+	TSubclassOf<class UHealthBarWidget> ManaBarWidgetClass;
+
+	// UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+	
+
+	UPROPERTY()
+	class UHealthBarWidget* HealthBarWidget = nullptr;
+	UPROPERTY()
+	class UHealthBarWidget* ManaBarWidget = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+	class UNiagaraComponent* LThrust;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+	class UNiagaraComponent* RThrust;
 };
 

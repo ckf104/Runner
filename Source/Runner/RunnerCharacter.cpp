@@ -1,6 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "RunnerCharacter.h"
+#include "Blueprint/UserWidget.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -10,10 +12,15 @@
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "HealthBarWidget.h"
 #include "InputActionValue.h"
+#include "Kismet/GameplayStatics.h"
 #include "Math/UnrealMathUtility.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
 #include "Public/RunnerMovementComponent.h"
 #include "Public/WorldGenerator.h"
+#include "TimerManager.h"
 #include "UObject/UObjectGlobals.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
@@ -63,6 +70,29 @@ ARunnerCharacter::ARunnerCharacter(const FObjectInitializer& ObjInitializer)
 void ARunnerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	ForEachComponent<UNiagaraComponent>(false, [this](UNiagaraComponent* Component) {
+		if (Component->GetName().Contains(TEXT("LeftThrust")))
+		{
+			LThrust = Component;
+			LThrust->SetHiddenInGame(true);
+			LThrust->Deactivate();
+			return false; // Stop iterating once we find the LeftThrust component
+		}
+
+		return true; // Continue iterating
+	});
+	ForEachComponent<UNiagaraComponent>(false, [this](UNiagaraComponent* Component) {
+		if (Component->GetName().Contains(TEXT("RightThrust")))
+		{
+			RThrust = Component;
+			RThrust->SetHiddenInGame(true);
+			RThrust->Deactivate();
+			return false; // Stop iterating once we find the RightThrust component
+		}
+
+		return true; // Continue iterating
+	});
+	InitUI();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -98,6 +128,9 @@ void ARunnerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ARunnerCharacter::Look);
 
+		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Started, this, &ARunnerCharacter::StartThrust);
+		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Completed, this, &ARunnerCharacter::StopThrust);
+
 		EnhancedInputComponent->BindActionValue(DownAction);
 		EnhancedInputComponent->BindActionValue(MoveAction);
 	}
@@ -117,6 +150,16 @@ void ARunnerCharacter::Tick(float Delta)
 	{
 		AddMovementInput(GetActorForwardVector(), 1.0f);
 		// UE_LOG(LogTemplateCharacter, Log, TEXT("ARunnerCharacter::Tick called with Delta: %s"), *GetVelocity().ToString());
+	}
+	if (bThrusting)
+	{
+		Mana -= ManaReduceSpeed * Delta;
+		if (Mana <= 0.0f)
+		{
+			Mana = 0.0f;
+			StopThrust();
+		}
+		ManaBarWidget->SetCurrentValue(Mana);
 	}
 }
 
@@ -200,4 +243,94 @@ void ARunnerCharacter::Look(const FInputActionValue& Value)
 		AddControllerYawInput(LookAxisVector.X);
 		AddControllerPitchInput(LookAxisVector.Y);
 	}
+}
+
+void ARunnerCharacter::StartThrust()
+{
+	UE_LOG(LogTemplateCharacter, Log, TEXT("ARunnerCharacter::StartThrust called, Mana: %f"), Mana);
+	if (Mana < MinimumThrustMana)
+	{
+		return; // Not enough mana to thrust
+	}
+	bThrusting = true;
+	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+	MovementComp->StartThrust();
+	if (LThrust)
+	{
+		LThrust->SetHiddenInGame(false);
+		LThrust->Activate();
+	}
+	if (RThrust)
+	{
+		RThrust->SetHiddenInGame(false);
+		RThrust->Activate();
+	}
+}
+
+void ARunnerCharacter::StopThrust()
+{
+	UE_LOG(LogTemplateCharacter, Log, TEXT("ARunnerCharacter::StopThrust called, Mana: %f"), Mana);
+	if (bThrusting)
+	{
+		bThrusting = false;
+		auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+		MovementComp->StopThrust();
+		if (LThrust)
+		{
+			LThrust->SetHiddenInGame(true);
+			LThrust->Deactivate();
+		}
+		if (RThrust)
+		{
+			RThrust->SetHiddenInGame(true);
+			RThrust->Deactivate();
+		}
+	}
+}
+
+void ARunnerCharacter::InitUI()
+{
+	if (HealthBarWidgetClass)
+	{
+		HealthBarWidget = CreateWidget<UHealthBarWidget>(GetWorld(), HealthBarWidgetClass);
+		if (HealthBarWidget)
+		{
+			HealthBarWidget->AddToViewport();
+			Health = MaxHealth;
+			HealthBarWidget->SetMaxAndCurrentValues(MaxHealth, Health);
+		}
+	}
+
+	if (ManaBarWidgetClass)
+	{
+		ManaBarWidget = CreateWidget<UHealthBarWidget>(GetWorld(), ManaBarWidgetClass);
+		if (ManaBarWidget)
+		{
+			ManaBarWidget->AddToViewport();
+			Mana = MaxMana;
+			ManaBarWidget->SetMaxAndCurrentValues(MaxMana, Mana);
+		}
+	}
+}
+
+void ARunnerCharacter::TakeHitImpact(const FHitResult& Hit)
+{
+	if (HealthBarWidget)
+	{
+		Health -= HitDamage;
+		if (Health <= 0.0f)
+		{
+			Health = 0.0f;
+			// Handle character death
+			UE_LOG(LogTemplateCharacter, Warning, TEXT("Character has died!"));
+		}
+		HealthBarWidget->SetCurrentValue(Health);
+	}
+	ShowDamageUI();
+	// UGameplayStatics::SetGlobalTimeDilation(this, HitSlomo);
+	CustomTimeDilation = HitSlomo;
+	FTimerHandle TimerHandle;
+	// auto RealHitSlomoTime = HitSlomoTime * HitSlomo;
+	// GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { UGameplayStatics::SetGlobalTimeDilation(this, 1.0f); }, RealHitSlomoTime, false);
+	GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { CustomTimeDilation = 1.0f; }, HitSlomoTime, false);
 }

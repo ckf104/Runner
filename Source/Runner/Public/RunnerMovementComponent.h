@@ -122,6 +122,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float MinimumAirTime = 0.5f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
+	float MaxThrustSpeed = 3000.0f;
+
+	// 碰撞到物体后的忽略该物体的时间
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
+	float IgnoreTime;
+
 protected:
 	void BeginPlay() override;
 
@@ -140,6 +147,10 @@ protected:
 	void ProcessLanded(const FHitResult& Hit, float remainingTime, int32 Iterations) override;
 	FVector NewFallVelocity(const FVector& InitialVelocity, const FVector& Gravity, float DeltaTime) const override;
 
+public:
+	void StartThrust();
+	void StopThrust();
+
 private:
 	UPROPERTY()
 	TObjectPtr<class USkeletalMeshComponent> SkateboardMesh;
@@ -150,6 +161,8 @@ private:
 	float DebugDeltaTime = 0.2f;
 
 	float InAirTime = 0.0f;
+
+	float DefaultMaxWalkingSpeed;
 
 	// 上一帧在地面时滑板的目标旋转，用来指示移动方向
 	FRotator LastTickTargetRotation;

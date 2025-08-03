@@ -414,8 +414,11 @@ void AWorldGenerator::CreateMeshFromTileData()
 			}
 
 			BufferStateGameThreadOnly[i] = EBufferState::Idle; // Reset the buffer state
-			AsyncTaskRef[i]->Release();
-			AsyncTaskRef[i] = nullptr;
+			// if (AsyncTaskRef[i])
+			{
+				AsyncTaskRef[i]->Release();
+				AsyncTaskRef[i] = nullptr;
+			}
 			TilesInBuilding[i] = FInt32Point(INT32_MAX, INT32_MAX); // Reset the tile in building
 		}
 	}
@@ -657,3 +660,80 @@ void AWorldGenerator::GenerateRandomPointsAsync(int32 BufferIndex, FInt32Point T
 		Point.Size = 1.0f;
 	}
 }
+
+void AWorldGenerator::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+
+	if (!bDebugMode)
+	{
+		return;
+	}
+
+	InitDataBuffer();
+
+	auto PosOffset = FVector2D(double(CellSize) * XCellNumber / 2, double(CellSize) * YCellNumber / 2);
+	GenerateOneTileAsync(0, FInt32Point(0, 0), PosOffset);
+
+	auto& Vertices = TaskDataBuffers[0].VerticesBuffer;
+	if (DrawType == EDrawType::Gaussian)
+	{
+		GenerateGaussian2D(Vertices);
+	}
+
+	auto& TaskData = TaskDataBuffers[0];
+	auto& VerticesBuffer = TaskData.VerticesBuffer;
+	auto& NormalsBuffer = TaskData.NormalsBuffer;
+	auto& UV0Buffer = TaskData.UV0Buffer;
+	auto& TangentsBuffer = TaskData.TangentsBuffer;
+	auto& RandomPoints = TaskData.RandomPoints;
+
+	auto Tile = TilesInBuilding[0];
+	UProceduralMeshComponent* PMC = nullptr;
+	int32 PMCIndex = -1;
+	Tie(PMC, PMCIndex) = GetPMCFromHorizontalPos(FVector2D(100.0, 100.0));
+
+	auto SectionIdx = FindReplaceableSection(PMCIndex);
+
+	// Create a new section
+	PMC->CreateMeshSection(TileMap[PMCIndex].Num(), VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, TArray<FColor>(), TangentsBuffer, true);
+	PMC->SetMaterial(TileMap[PMCIndex].Num(), TileMaterial);
+}
+
+void AWorldGenerator::GenerateGaussian2D(TArray<FVector>& Vertices) const
+{
+	double MaxZ = 0;
+	for (auto& Vertex : Vertices)
+	{
+		Vertex.Z = Gaussian2D(Vertex.X, Vertex.Y);
+		MaxZ = FMath::Max(MaxZ, Vertex.Z);
+	}
+	UE_LOG(LogTemp, Warning, TEXT("Max Z value in Gaussian distribution: %f"), MaxZ);
+}
+
+#ifdef WITH_EDITOR
+void AWorldGenerator::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	if (PropertyChangedEvent.Property && PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AWorldGenerator, DrawType))
+	{
+		// Handle changes to the DrawType property
+	}
+	else if (PropertyChangedEvent.Property && PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AWorldGenerator, bDebugMode))
+	{
+		// Handle changes to the bDebugMode property
+		if (!bDebugMode)
+		{
+			for (int32 i = 0; i < MaxRegionCount; ++i)
+			{
+				if (!ProceduralMeshComp[i])
+				{
+					continue; // Skip if the PMC is not initialized
+				}
+				ProceduralMeshComp[i]->ClearAllMeshSections();
+			}
+		}
+	}
+}
+#endif // WITH_EDITOR

@@ -18,6 +18,14 @@ struct RandomPoint
 	double Size;
 };
 
+UENUM()
+enum class EDrawType : uint8
+{
+	Gaussian,
+	Cubic,
+
+};
+
 UCLASS()
 class RUNNER_API AWorldGenerator : public AActor
 {
@@ -149,6 +157,12 @@ public:
 	FVector GetWorldPositionFromUV(FVector2D UV, FInt32Point Tile) const;
 	int32 GetTriangleFromUV(FVector2D UV, FVector2D& BarycentricCoords) const;
 
+	void OnConstruction(const FTransform& Transform) override;
+
+#if WITH_EDITOR
+	void PostEditChangeProperty( struct FPropertyChangedEvent& PropertyChangedEvent);
+#endif // WITH_EDITOR
+
 private:
 	mutable TArray<FInt32Point> TileMap[MaxRegionCount]; // 用于存储生成的方格位置
 
@@ -162,6 +176,9 @@ private:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	bool bDebugMode = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
+	EDrawType DrawType = EDrawType::Gaussian;	
 
 	// UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	// FVector2D UVOffset = FVector2D(0.0f, 0.0f); // 用于调试 UV 偏移
@@ -190,9 +207,20 @@ private:
 
 	// 各种数学函测试
 	// 二维高斯分布
-	//
-	double Gaussian2D(double X, double Y, double SigmaX, double SigmaY) const
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Math|Gaussian", meta = (AllowPrivateAccess = "true"))
+	double SigmaX = 0.1;  // 0.6 - 0.8
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Math|Gaussian", meta = (AllowPrivateAccess = "true"))
+	double SigmaY = 0.1; // 0.6 - 0.8
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Math|Gaussian", meta = (AllowPrivateAccess = "true"))
+	double GSAmplitude = 10.0;  // 2000
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Math|Gaussian", meta = (AllowPrivateAccess = "true"))
+	double GSScale = 0.01;  // 0.001
+
+	double Gaussian2D(double X, double Y) const
 	{
-		return (1.0 / (2.0 * PI * SigmaX * SigmaY)) * FMath::Exp(-(X * X / (2.0 * SigmaX * SigmaX) + Y * Y / (2.0 * SigmaY * SigmaY)));
+		X = X * GSScale;
+		Y = Y * GSScale;
+		return (GSAmplitude / (2.0 * PI * SigmaX * SigmaY)) * FMath::Exp(-(X * X / (2.0 * SigmaX * SigmaX) + Y * Y / (2.0 * SigmaY * SigmaY)));
 	}
+	void GenerateGaussian2D(TArray<FVector>& Vertices) const;
 };

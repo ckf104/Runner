@@ -175,6 +175,50 @@ public:
 	}
 };
 
+USTRUCT(BlueprintType)
+struct FRunnerAdditionalHealthBarSetup
+{
+	GENERATED_BODY();
+
+public:
+	/** The height of the additional progress bar. The width of the bar will be the same as the main progress bar. */
+	UPROPERTY(EditAnywhere, Category = "HealthBar|Additional Bars")
+	float Height;
+
+	/** The maximum value of progress bar. */
+	UPROPERTY(EditAnywhere, Category = "HealthBar|Additional Bars")
+	float MaxValue;
+
+	/** The current value of progress bar. */
+	UPROPERTY(EditAnywhere, Category = "HealthBar|Additional Bars")
+	float CurrentValue;
+
+	/** The texture used for progress bar background. */
+	UPROPERTY(EditAnywhere, Category = "HealthBar|Additional Bars")
+	UTexture* Texture;
+
+	/** The color of the background. */
+	UPROPERTY(EditAnywhere, Category = "HealthBar|Additional Bars")
+	FLinearColor Color;
+
+	UPROPERTY(EditAnywhere, Category = "HealthBar|Additional Bars")
+	FHealthBarAnimationSetup DamageAnimationType;	
+
+	UPROPERTY(EditAnywhere, Category = "HealthBar|Additional Bars")
+	FHealthBarAnimationSetup HealAnimationType;
+
+	FRunnerAdditionalHealthBarSetup()
+	{
+		Height = 8.0f;
+		MaxValue = 100.0f;
+		CurrentValue = 100.0f;
+		Texture = nullptr;
+		Color = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+		DamageAnimationType = FHealthBarAnimationSetup();
+		HealAnimationType = FHealthBarAnimationSetup();
+	}
+};
+
 /**
 * Store a pointer to additional progress bar
 * As well as current and maximum value
@@ -223,6 +267,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "HealthBar|Setup")
 	void SetupAdditionalBars(const TArray<FAdditionalHealthBarSetup>& SetupData);
+	UFUNCTION(BlueprintCallable, Category = "HealthBar|Setup")
+	void SetupRunnerAdditionalBars(const TArray<FRunnerAdditionalHealthBarSetup>& SetupData);
 	// Setup section END
 
 
@@ -232,6 +278,8 @@ public:
 	void SetCurrentValue(const float CurrentValue);
 	UFUNCTION(BlueprintCallable, Category = "HealthBar|Setup")
 	void AdditionalBarSetCurrentValue(const float CurrentValue, const int AdditionalBarIndex);
+	UFUNCTION(BlueprintCallable, Category = "HealthBar|Setup")
+	void RunnerAdditionalBarSetCurrentValue(const float CurrentValue, const int AdditionalBarIndex, const bool bAnimate);
 	UFUNCTION(BlueprintCallable, Category = "HealthBar|Setup")
 	void SetMaxAndCurrentValues(const float MaxValue, const float CurrentValue, bool bAnimation = true);
 	void AdditionalBarSetMaxAndCurrentValues(const float MaxValue, const float CurrentValue, const int AdditionalBarIndex);
@@ -326,6 +374,8 @@ private:
 	FHealthBarAnimationSetup DamageAnimation;
 	FHealthBarAnimationSetup HealAnimation;
 	TArray<FAdditionalHealthBar> AdditionalBars;
+	TArray<FHealthBarAnimationSetup> AdditionalBarsDamageAnimations;
+	TArray<FHealthBarAnimationSetup> AdditionalBarsHealAnimations;
 
 	void UpdateProgressBarValue(bool bAnimate = true);
 	void UpdateAdditionalProgressBarValue(FAdditionalHealthBar& AdditionalBar);
