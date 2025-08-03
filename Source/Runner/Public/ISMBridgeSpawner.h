@@ -26,7 +26,7 @@ public:
 	void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
 
 	bool BarrierHasCustomSlope() const override { return true; }
-	double GetCustomSlopeAngle(const FHitResult& Floor) const override;
+	double GetCustomSlopeAngle(int32 InstanceIndex) const override;
 
 protected:
 	FRotator GetRotationFromSeed(FRotator Seed) const override;

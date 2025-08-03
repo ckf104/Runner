@@ -54,10 +54,10 @@ void AISMBridgeSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 	TileInstanceIndices.Add(Tile, InstanceIndices);
 }
 
-double AISMBridgeSpawner::GetCustomSlopeAngle(const FHitResult& Floor) const
+double AISMBridgeSpawner::GetCustomSlopeAngle(int32 InstanceIndex) const
 {
-  FTransform Transform;
-  ISMComponent->GetInstanceTransform(Floor.Item, Transform);
+	FTransform Transform;
+	ISMComponent->GetInstanceTransform(InstanceIndex, Transform);
 
   auto PitchAngle = Transform.GetRotation().Rotator().Pitch;
   return -PitchAngle;

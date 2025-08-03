@@ -36,6 +36,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
 	float BarrierRadius = 10.0f; // 障碍物半径
 
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
+	bool bDeferSpawn = false; // 是否延迟 spawn，默认不延迟
+
 protected:
 	void TransformAlign(FVector& Location, FRotator& Rotation, AWorldGenerator* WorldGenerator) const;
 	void GetTransformFromSeed(FTransform& OutTransform, const RandomPoint& Seed, FInt32Point Tile, AWorldGenerator* WorldGenerator) const;
@@ -43,10 +46,11 @@ protected:
 	virtual FRotator GetRotationFromSeed(FRotator Seed) const;
 
 public:
-	virtual void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) {};
-	virtual void RemoveTile(FInt32Point Tile) {};
+	virtual void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) {}
+	virtual bool DeferSpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) { return true;}
+	virtual void RemoveTile(FInt32Point Tile) {}
 	virtual int32 GetBarrierCountAnyThread(double RandomValue) const { return 10; }
 
 	virtual bool BarrierHasCustomSlope() const { return false; }
-	virtual double GetCustomSlopeAngle(const FHitResult& Floor) const { return 0.0; }
+	virtual double GetCustomSlopeAngle(int32 InstanceIndex) const { return 0.0; }
 };

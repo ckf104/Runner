@@ -24,6 +24,8 @@ public:
 	void RemoveTile(FInt32Point Tile) override;
 	int32 GetBarrierCountAnyThread(double RandomValue) const override;
 
+	const TArray<int32>* GetInstanceInTile(FInt32Point Tile) const { return TileInstanceIndices.Find(Tile); };
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
 	UInstancedStaticMeshComponent* ISMComponent;
 

@@ -529,39 +529,43 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 	return false;
 }
 
+double URunnerMovementComponent::CalcStartZVelocity(double Roll, double GroundSpeedSize, double TakeoffSpeedScale, double MaxStartZVelocityInAir)
+{
+	double ResultZ = 0.0;
+	// 朝下的方向
+	if (Roll >= 0.0f)
+	{
+		auto TanTheta = FMath::Tan(FMath::DegreesToRadians(Roll));
+		auto ZVelocity = TanTheta * GroundSpeedSize;
+		// auto Alpha = FMath::Clamp(LastRoll / MaxStartRollAngleInAir, 0.0f, 1.0f);
+		ResultZ = -FMath::Clamp(ZVelocity, 0.0, MaxStartZVelocityInAir);
+	}
+	// 朝上的方向
+	else
+	{
+		auto TanTheta = FMath::Tan(FMath::DegreesToRadians(-Roll));
+		auto ZVelocity = TanTheta * GroundSpeedSize;
+		// auto Alpha = FMath::Clamp(-LastRoll / MaxStartRollAngleInAir, 0.0f, 1.0f);
+		ResultZ = FMath::Clamp(ZVelocity * TakeoffSpeedScale, 0.0, MaxStartZVelocityInAir);
+	}
+	UE_LOG(LogTemp, Warning, TEXT("LastRoll: %f, TanTheta: %f, ResultZ: %f"), Roll, FMath::Tan(FMath::DegreesToRadians(Roll)), ResultZ);
+	return ResultZ;
+}
+
 double URunnerMovementComponent::CalcStartZVelocity() const
 {
-
 	auto LastRoll = LastTickTargetRotation.Roll;
 	if (OldHit.IsValidBlockingHit())
 	{
 		auto OldHitActor = Cast<ABarrierSpawner>(OldHit.GetActor());
 		if (OldHitActor && OldHitActor->BarrierHasCustomSlope())
 		{
-			LastRoll = OldHitActor->GetCustomSlopeAngle(OldHit);
+			LastRoll = OldHitActor->GetCustomSlopeAngle(OldHit.Item);
 		}
 		OldHit.Reset();
 	}
 	UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::CalcStartZVelocity: LastRoll: %f"), LastRoll);
-	auto ResultZ = 0.0;
-
-	// 朝下的方向
-	if (LastRoll >= 0.0f)
-	{
-		auto TanTheta = FMath::Tan(FMath::DegreesToRadians(LastRoll));
-		auto ZVelocity = TanTheta * Velocity.Size2D();
-		// auto Alpha = FMath::Clamp(LastRoll / MaxStartRollAngleInAir, 0.0f, 1.0f);
-		ResultZ = -FMath::Clamp(ZVelocity * TakeoffSpeedScale, 0.0, MaxStartZVelocityInAir);
-	}
-	// 朝上的方向
-	else
-	{
-		auto TanTheta = FMath::Tan(FMath::DegreesToRadians(-LastRoll));
-		auto ZVelocity = TanTheta * Velocity.Size2D();
-		// auto Alpha = FMath::Clamp(-LastRoll / MaxStartRollAngleInAir, 0.0f, 1.0f);
-		ResultZ = FMath::Clamp(ZVelocity, 0.0, MaxStartZVelocityInAir);
-	}
-	// UE_LOG(LogTemp, Warning, TEXT("LastRoll: %f, TanTheta: %f, ResultZ: %f"), LastRoll, FMath::Tan(FMath::DegreesToRadians(LastRoll)), ResultZ);
+	auto ResultZ = CalcStartZVelocity(LastRoll, Velocity.Size2D(), TakeoffSpeedScale, MaxStartZVelocityInAir);
 	return ResultZ;
 }
 
@@ -803,7 +807,7 @@ void URunnerMovementComponent::AdjustFloorHeight()
 			}
 		}
 
-		SafeMoveUpdatedComponent(MoveDist * -GetGravityDirection(), UpdatedComponent->GetComponentQuat(), true, AdjustHit );
+		SafeMoveUpdatedComponent(MoveDist * -GetGravityDirection(), UpdatedComponent->GetComponentQuat(), true, AdjustHit);
 		UE_LOG(LogTemp, VeryVerbose, TEXT("Adjust floor height %.3f (Hit = %d)"), MoveDist, AdjustHit.bBlockingHit);
 
 		if (!AdjustHit.IsValidBlockingHit())
@@ -828,7 +832,7 @@ void URunnerMovementComponent::AdjustFloorHeight()
 		// Don't recalculate velocity based on this height adjustment, if considering vertical adjustments.
 		// Also avoid it if we moved out of penetration
 		bJustTeleported |= !bMaintainHorizontalGroundVelocity || (OldFloorDist < 0.f);
-		
+
 		// If something caused us to adjust our height (especially a depentration) we should ensure another check next frame or we will keep a stale result.
 		if (CharacterOwner && CharacterOwner->GetLocalRole() != ROLE_SimulatedProxy)
 		{

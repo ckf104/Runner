@@ -179,6 +179,9 @@ public:
 #endif // WITH_EDITOR
 
 private:
+	// 缓存延迟 spawn 的 spawner 需要的数据
+	mutable TMap<FIntVector, TArray<RandomPoint>> CachedSpawnData;
+
 	mutable TArray<FInt32Point> TileMap[MaxRegionCount]; // 用于存储生成的方格位置
 
 	// TArray<FVector> VerticesBuffer;

@@ -229,6 +229,16 @@ TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetPMCFromHorizontalPos
 		}
 		TileMap[ReplacableIndex].Empty(); // Clear the tile map for this PMC
 
+		// 删除 CachedSpawnData 中对应 tile 的数据
+		for (auto It = CachedSpawnData.CreateIterator(); It; ++It)
+		{
+			if (It.Key().Z == ReplacableIndex)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData before used!"), It.Key().Z, *FIntVector(It.Key()).ToString());
+				It.RemoveCurrent();
+			}
+		}
+
 		VersionNumber[ReplacableIndex] = ++CurrentVersionIndex;
 		return { PMC, ReplacableIndex };
 	}
@@ -463,6 +473,12 @@ void AWorldGenerator::CreateMeshFromTileData()
 					BarrierSpawner->RemoveTile(OldTile);
 				}
 				TileMap[PMCIndex][SectionIdx] = Tile;
+				// 删除 CachedSpawnData 中对应 tile 的数据
+				auto RemoveNumber = CachedSpawnData.Remove(FIntVector(OldTile.X, OldTile.Y, PMCIndex));
+				if (RemoveNumber > 0)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData!"), PMCIndex, *FIntVector(OldTile.X, OldTile.Y, PMCIndex).ToString());
+				}
 			}
 			auto NewTile = TileMap[PMCIndex][SectionIdx];
 			int32 StartIdx = 0;
@@ -470,7 +486,14 @@ void AWorldGenerator::CreateMeshFromTileData()
 			{
 				int32 BarCount = BarriersCount[Idx];
 				TArrayView<RandomPoint> RandomPointsView(&RandomPoints[StartIdx], BarCount);
-				BarrierSpawners[Idx]->SpawnBarriers(RandomPointsView, NewTile, this);
+				if (BarrierSpawners[Idx]->bDeferSpawn)
+				{
+					CachedSpawnData.Add(FIntVector(NewTile.X, NewTile.Y, Idx), TArray<RandomPoint>(RandomPointsView));
+				}
+				else
+				{
+					BarrierSpawners[Idx]->SpawnBarriers(RandomPointsView, NewTile, this);
+				}
 				StartIdx += BarCount;
 			}
 
@@ -507,6 +530,16 @@ void AWorldGenerator::PMCClear(int32 ReplaceableIndex)
 		}
 	}
 	TileMap[ReplaceableIndex].Empty(); // Clear the tile map for this PMC
+
+	// 删除 CachedSpawnData 中对应 tile 的数据
+	for (auto It = CachedSpawnData.CreateIterator(); It; ++It)
+	{
+		if (It.Key().Z == ReplaceableIndex)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData before used!"), It.Key().Z, *FIntVector(It.Key()).ToString());
+			It.RemoveCurrent();
+		}
+	}
 }
 
 bool AWorldGenerator::GenerateOneTile(FInt32Point Tile)
@@ -620,6 +653,18 @@ void AWorldGenerator::GenerateNewTiles()
 				// 如果没有必要的 tile，则清除这个 PMC
 				PMCClear(i);
 			}
+		}
+	}
+
+	for (auto It = CachedSpawnData.CreateIterator(); It; ++It)
+	{
+		auto Tile = FInt32Point(It.Key().X, It.Key().Y);
+		int32 ReplacableIndex = It.Key().Z;
+		auto bSuccess = BarrierSpawners[ReplacableIndex]->DeferSpawnBarriers(It.Value(), Tile, this);
+		if (bSuccess)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Spawner %d, tile %s spawned barriers from CachedSpawnData!"), ReplacableIndex, *Tile.ToString());
+			It.RemoveCurrent();
 		}
 	}
 }

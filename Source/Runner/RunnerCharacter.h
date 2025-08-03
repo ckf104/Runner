@@ -17,7 +17,7 @@ struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
-UCLASS(config=Game)
+UCLASS(config = Game)
 class ARunnerCharacter : public ACharacter
 {
 	GENERATED_BODY()
@@ -29,7 +29,7 @@ class ARunnerCharacter : public ACharacter
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
-	
+
 	/** MappingContext */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputMappingContext* DefaultMappingContext;
@@ -64,23 +64,27 @@ public:
 	void NotifyActorBeginOverlap(AActor* OtherActor) override;
 	void NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit) override;
 
+	UFUNCTION()
+	void DealBarrierOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+			UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep,
+			FHitResult const& SweepResult);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float TurnSpeedScale = 0.2f;
 
 	UFUNCTION(BlueprintCallable, Category = "Skate Input")
 	float GetDownValue() const;
-	
+
 	UFUNCTION(BlueprintCallable, Category = "Skate Input")
 	float GetTurnValue() const;
 
 protected:
-
 	/** Called for movement input */
 	void Move(const FInputActionValue& Value);
 
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
-	
+
 	void Tick(float Delta) override;
 	void TurnDirection(float Delta);
 
@@ -90,7 +94,6 @@ protected:
 	void BeginPlay() override;
 
 protected:
-
 	virtual void NotifyControllerChanged() override;
 
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -101,7 +104,7 @@ public:
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
-// 生命值和氮气
+	// 生命值和氮气
 	UPROPERTY(BlueprintReadWrite, Category = "Health")
 	float Health;
 
@@ -127,10 +130,10 @@ public:
 	float HitSlomo = 0.1f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
 	float HitSlomoTime = 0.5f;
-	
+
 	bool bThrusting = false;
 
-// UI Settings
+	// UI Settings
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")
 	void ShowLandUI(ELevel LandLevel);
 
@@ -145,7 +148,6 @@ public:
 	TSubclassOf<class UHealthBarWidget> ManaBarWidgetClass;
 
 	// UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
-	
 
 	UPROPERTY()
 	class UHealthBarWidget* HealthBarWidget = nullptr;
@@ -157,4 +159,3 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
 	class UNiagaraComponent* RThrust;
 };
-

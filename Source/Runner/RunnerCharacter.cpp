@@ -2,6 +2,7 @@
 
 #include "RunnerCharacter.h"
 #include "Blueprint/UserWidget.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
@@ -92,6 +93,14 @@ void ARunnerCharacter::BeginPlay()
 
 		return true; // Continue iterating
 	});
+	ForEachComponent<UPrimitiveComponent>(false, [this](UPrimitiveComponent* Component) {
+		if (Component->ComponentHasTag("Absorb"))
+		{
+			Component->OnComponentBeginOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlap);
+			
+		}
+	});
+	GetCapsuleComponent()->OnComponentBeginOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlap);
 	InitUI();
 }
 
@@ -351,6 +360,20 @@ void ARunnerCharacter::NotifyHit(class UPrimitiveComponent* MyComp, AActor* Othe
 void ARunnerCharacter::NotifyActorBeginOverlap(AActor* OtherActor)
 {
 	Super::NotifyActorBeginOverlap(OtherActor);
-	TakeHitImpact();
-	UE_LOG(LogTemplateCharacter, Warning, TEXT("ARunnerCharacter::NotifyActorBeginOverlap: %s"), *OtherActor->GetName());
+	// TakeHitImpact();
+	// UE_LOG(LogTemplateCharacter, Warning, TEXT("ARunnerCharacter::NotifyActorBeginOverlap: %s"), *OtherActor->GetName());
+}
+
+void ARunnerCharacter::DealBarrierOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep,
+		FHitResult const& SweepResult)
+{
+	if (OtherComp->ComponentHasTag("GoldCoin"))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ARunnerCharacter::DealBarrierOverlap: Get Coin %d"), OtherBodyIndex);
+	}
+	else
+	{
+		TakeHitImpact();
+	}
 }
