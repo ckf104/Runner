@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "RunnerMovementComponent.h"
+#include "BarrierSpawner.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
@@ -22,6 +23,7 @@
 
 DECLARE_CYCLE_STAT(TEXT("Skateboard PhysWalking"), STAT_SkateboardPhysWalking, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Skateboard PhysFalling"), STAT_SkateboardPhysFalling, STATGROUP_Character);
+DECLARE_CYCLE_STAT(TEXT("Skateboard AdjustFloorHeight"), STAT_SkateboardAdjustFloorHeight, STATGROUP_Character);
 
 // Defines for build configs
 #if DO_CHECK && !UE_BUILD_SHIPPING // Disable even if checks in shipping are enabled.
@@ -77,7 +79,7 @@ void URunnerMovementComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 	// 移动后更新滑板的旋转
 	UpdateSkateBoardRotation(DeltaTime);
 	InAirTime += DeltaTime;
-	// UE_LOG(LogTemp, Log, TEXT("Skateboard Velocity Z: %f, Size: %f"), Velocity.Z, Velocity.Size());
+	// UE_LOG(LogTemp, Log, TEXT("Skateboard Velocity Z: %f, Size: %f, ActorLocation: %s"), Velocity.Z, Velocity.Size(), *GetOwner()->GetActorLocation().ToString());
 }
 
 ELevel URunnerMovementComponent::CalcLandLevel(FRotator TargetRotation) const
@@ -174,15 +176,28 @@ FRotator URunnerMovementComponent::CalcWakingTargetRotation(bool& bAccuracy) con
 		auto FWCSPos = SkateboardMesh->GetSocketTransform("FW", RTS_Component).GetTranslation();
 		auto FWWSPos = DesiredTransform.TransformPosition(FWCSPos);
 
-		auto GroundHeightInBW = WorldGenerator->GetHeightFromHorizontalPos(FVector2D(BWWSPos.X, BWWSPos.Y));
-		auto GroundHeightInFW = WorldGenerator->GetHeightFromHorizontalPos(FVector2D(FWWSPos.X, FWWSPos.Y));
+		// UPrimitiveComponent* HitComponentBW = nullptr;
+		// UPrimitiveComponent* HitComponentFW = nullptr;
+		auto GroundHeightInBW = WorldGenerator->GetHeightFromHorizontalPos(FVector2D(BWWSPos.X, BWWSPos.Y) /*, HitComponentBW*/);
+		auto GroundHeightInFW = WorldGenerator->GetHeightFromHorizontalPos(FVector2D(FWWSPos.X, FWWSPos.Y) /*, HitComponentFW*/);
 
-		auto AdjustedBWHeight = BWWSPos.Z - GroundHeightInBW >= SkateboardTraceDistance ? BWWSPos.Z : GroundHeightInBW;
+		auto bValidFloor = CurrentFloor.HitResult.IsValidBlockingHit();
+		auto TraceDistanceFW = SkateboardTraceDistance;
+		auto TraceDistanceBW = SkateboardTraceDistance;
+		// if (bValidFloor && HitComponentFW != CurrentFloor.HitResult.GetComponent())
+		// {
+		// 	TraceDistanceFW = SkateboardTraceDistance / 2.0f;
+		// }
+		// if (bValidFloor && HitComponentBW != CurrentFloor.HitResult.GetComponent())
+		// {
+		// 	TraceDistanceBW = SkateboardTraceDistance / 2.0f;
+		// }
+		auto AdjustedBWHeight = FMath::Abs(BWWSPos.Z - GroundHeightInBW) >= TraceDistanceBW ? BWWSPos.Z : GroundHeightInBW;
 		auto AdjustedBWPos = FVector(BWWSPos.X, BWWSPos.Y, AdjustedBWHeight);
-		auto AdjustedFWHeight = FWWSPos.Z - GroundHeightInFW >= SkateboardTraceDistance ? FWWSPos.Z : GroundHeightInFW;
+		auto AdjustedFWHeight = FMath::Abs(FWWSPos.Z - GroundHeightInFW) >= TraceDistanceFW ? FWWSPos.Z : GroundHeightInFW;
 		auto AdjustedFWPos = FVector(FWWSPos.X, FWWSPos.Y, AdjustedFWHeight);
 
-		bAccuracy = BWWSPos.Z - GroundHeightInBW < SkateboardTraceDistance && FWWSPos.Z - GroundHeightInFW < SkateboardTraceDistance;
+		bAccuracy = FMath::Abs(BWWSPos.Z - GroundHeightInBW) < TraceDistanceBW && FMath::Abs(FWWSPos.Z - GroundHeightInFW) < TraceDistanceFW;
 
 		// DrawDebugBox(GetWorld(), AdjustedBWPos, FVector(10.0f), FColor::Red, false, 1.0f, 0, 1.0f);
 		// DrawDebugBox(GetWorld(), AdjustedFWPos, FVector(10.0f), FColor::Green, false, 1.0f, 0, 1.0f);
@@ -223,15 +238,28 @@ FRotator URunnerMovementComponent::CalcWakingTargetRotation(bool& bAccuracy) con
 		auto BLWWSPos = DesiredTransform.TransformPosition(BLWCSPos);
 		auto BRWWSPos = DesiredTransform.TransformPosition(BRWCSPos);
 
-		auto GroundHeightInBLW = WorldGenerator->GetHeightFromHorizontalPos(FVector2D(BLWWSPos.X, BLWWSPos.Y));
-		auto GroundHeightInBRW = WorldGenerator->GetHeightFromHorizontalPos(FVector2D(BRWWSPos.X, BRWWSPos.Y));
+		// UPrimitiveComponent* HitComponentBLW = nullptr;
+		// UPrimitiveComponent* HitComponentBRW = nullptr;
+		auto GroundHeightInBLW = WorldGenerator->GetHeightFromHorizontalPos(FVector2D(BLWWSPos.X, BLWWSPos.Y) /*, HitComponentBLW*/);
+		auto GroundHeightInBRW = WorldGenerator->GetHeightFromHorizontalPos(FVector2D(BRWWSPos.X, BRWWSPos.Y) /*, HitComponentBRW*/);
 
-		auto AdjustedBLWHeight = BLWWSPos.Z - GroundHeightInBLW >= SkateboardTraceDistance ? BLWWSPos.Z : GroundHeightInBLW;
+		auto TraceDistanceBLW = SkateboardTraceDistance;
+		auto TraceDistanceBRW = SkateboardTraceDistance;
+		// if (bValidFloor && HitComponentBLW != CurrentFloor.HitResult.GetComponent())
+		// {
+		// 	TraceDistanceBLW = SkateboardTraceDistance / 2.0f;
+		// }
+		// if (bValidFloor && HitComponentBRW != CurrentFloor.HitResult.GetComponent())
+		// {
+		// 	TraceDistanceBRW = SkateboardTraceDistance / 2.0f;
+		// }
+
+		auto AdjustedBLWHeight = FMath::Abs(BLWWSPos.Z - GroundHeightInBLW) >= TraceDistanceBLW ? BLWWSPos.Z : GroundHeightInBLW;
 		auto AdjustedBLWPos = FVector(BLWWSPos.X, BLWWSPos.Y, AdjustedBLWHeight);
-		auto AdjustedBRWHeight = BRWWSPos.Z - GroundHeightInBRW >= SkateboardTraceDistance ? BRWWSPos.Z : GroundHeightInBRW;
+		auto AdjustedBRWHeight = FMath::Abs(BRWWSPos.Z - GroundHeightInBRW) >= TraceDistanceBRW ? BRWWSPos.Z : GroundHeightInBRW;
 		auto AdjustedBRWPos = FVector(BRWWSPos.X, BRWWSPos.Y, AdjustedBRWHeight);
 
-		bAccuracy &= BLWWSPos.Z - GroundHeightInBLW < SkateboardTraceDistance && BRWWSPos.Z - GroundHeightInBRW < SkateboardTraceDistance;
+		bAccuracy &= FMath::Abs(BLWWSPos.Z - GroundHeightInBLW) < TraceDistanceBLW && FMath::Abs(BRWWSPos.Z - GroundHeightInBRW) < TraceDistanceBRW;
 
 		// if (Print)
 		// {
@@ -341,6 +369,12 @@ void URunnerMovementComponent::UpdateSkateBoardRotation(float DeltaTime)
 void URunnerMovementComponent::HandleImpact(const FHitResult& Hit, float LastMoveTimeSlice, const FVector& RampVector)
 {
 	Super::HandleImpact(Hit, LastMoveTimeSlice, RampVector);
+	// 不能将这个函数推迟到 AActor::NotifyHit 中，因为那时候可能已经积累了许多个 blocking hit 了
+	// HandleBlockingHit(Hit);
+}
+
+bool URunnerMovementComponent::HandleBlockingHit(const FHitResult& Hit)
+{
 	auto bWalkable = IsWalkable(Hit);
 	if (!bWalkable)
 	{
@@ -352,49 +386,105 @@ void URunnerMovementComponent::HandleImpact(const FHitResult& Hit, float LastMov
 			if (ISM)
 			{
 				auto* BI = ISM->GetBodyInstance(FName(), true, Hit.Item);
-				BI->SetResponseToChannel(ECC_Pawn, ECR_Ignore);
-				// Restore the collision response after IgnoreTime
-				FTimerHandle Handle;
-				TWeakObjectPtr<UInstancedStaticMeshComponent> WeakISM = ISM;
-				GetWorld()->GetTimerManager().SetTimer(
-						Handle, [WeakISM, HitItem = Hit.Item]() {
-							auto ISM = WeakISM.Get();
-							if (ISM)
-							{
-								auto* BI = ISM->GetBodyInstance(FName(), true, HitItem);
-								BI->SetResponseToChannel(ECC_Pawn, ECR_Block);
-							}
-						},
-						IgnoreTime, false);
+				if (BI->GetResponseToChannel(ECC_Pawn) == ECR_Block)
+				{
+					BI->SetResponseToChannel(ECC_Pawn, ECR_Ignore);
+					// Restore the collision response after IgnoreTime
+					FTimerHandle Handle;
+					TWeakObjectPtr<UInstancedStaticMeshComponent> WeakISM = ISM;
+					GetWorld()->GetTimerManager().SetTimer(
+							Handle, [WeakISM, HitItem = Hit.Item]() {
+								auto ISM = WeakISM.Get();
+								if (ISM)
+								{
+									auto* BI = ISM->GetBodyInstance(FName(), true, HitItem);
+									BI->SetResponseToChannel(ECC_Pawn, ECR_Block);
+								}
+							},
+							IgnoreTime, false);
+					Cast<ARunnerCharacter>(GetOwner())->TakeHitImpact();
+				}
 			}
 			// 碰撞到的是普通的 Primitive Component
 			else
 			{
-				HitComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
-				TWeakObjectPtr<UPrimitiveComponent> WeakComponent = HitComponent;
-				FTimerHandle Handle;
-				GetWorld()->GetTimerManager().SetTimer(
-						Handle, [WeakComponent]() {
-							if (WeakComponent.IsValid())
-							{
-								WeakComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-							}
-						},
-						IgnoreTime, false);
+				if (HitComponent->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Block)
+				{
+					HitComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+					TWeakObjectPtr<UPrimitiveComponent> WeakComponent = HitComponent;
+					FTimerHandle Handle;
+					GetWorld()->GetTimerManager().SetTimer(
+							Handle, [WeakComponent]() {
+								if (WeakComponent.IsValid())
+								{
+									WeakComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+								}
+							},
+							IgnoreTime, false);
+					Cast<ARunnerCharacter>(GetOwner())->TakeHitImpact();
+				}
 			}
 		}
-		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
-		if (Runner)
-		{
-			Runner->TakeHitImpact(Hit);
-		}
 	}
+	// 返回 true 表示这是一个需要处理的阻挡碰撞
+	return !bWalkable;
+}
+
+bool URunnerMovementComponent::CheckFall(const FFindFloorResult& OldFloor, const FHitResult& Hit, const FVector& Delta, const FVector& OldLocation, float remainingTime, float timeTick, int32 Iterations, bool bMustJump)
+{
+	if (!HasValidData())
+	{
+		return false;
+	}
+
+	if (bMustJump || CanWalkOffLedges())
+	{
+		HandleWalkingOffLedge(OldFloor.HitResult.ImpactNormal, OldFloor.HitResult.Normal, OldLocation, timeTick);
+		if (IsMovingOnGround())
+		{
+			// If still walking, then fall. If not, assume the user set a different mode they want to keep.
+			OldHit = OldFloor.HitResult;
+			StartFalling(Iterations, remainingTime, timeTick, Delta, OldLocation);
+		}
+		return true;
+	}
+	return false;
+}
+
+void URunnerMovementComponent::StartFalling(int32 Iterations, float remainingTime, float timeTick, const FVector& Delta, const FVector& subLoc)
+{
+	InAirTime = 0.0f; // 重置空中时间
+	Velocity.Z = CalcStartZVelocity();
+	UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::StartFalling: Start Falling! New Z Velocity: %f, Actor Location: %s"), Velocity.Z, *GetOwner()->GetActorLocation().ToString());
+	Super::StartFalling(Iterations, remainingTime, timeTick, Delta, subLoc);
+	UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::StartFalling: Start Falling Call end! New Z Velocity: %f, Actor Location: %s"), Velocity.Z, *GetOwner()->GetActorLocation().ToString());
 }
 
 bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, const FFindFloorResult& NewFloor)
 {
-	auto OldNormal = OldFloor.HitResult.ImpactNormal;
-	auto NewNormal = NewFloor.HitResult.ImpactNormal;
+	ensure(OldFloor.HitResult.IsValidBlockingHit() && NewFloor.HitResult.IsValidBlockingHit());
+	auto OldHitActor = OldFloor.HitResult.GetActor();
+	auto NewHitActor = NewFloor.HitResult.GetActor();
+
+	// 只处理地面的情况
+	if (OldHitActor != WorldGenerator || NewHitActor != WorldGenerator)
+	{
+		return Super::ShouldCatchAir(OldFloor, NewFloor);
+	}
+
+	FVector OldNormal, NewNormal;
+	if (bUseVisualNormal)
+	{
+		// 使用 WorldGenerator 获取视觉法线
+		OldNormal = WorldGenerator->GetNormalFromHorizontalPos(FVector2D(OldFloor.HitResult.ImpactPoint));
+		NewNormal = WorldGenerator->GetNormalFromHorizontalPos(FVector2D(NewFloor.HitResult.ImpactPoint));
+	}
+	else
+	{
+		// 使用 HitResult 的法线
+		OldNormal = OldFloor.HitResult.ImpactNormal;
+		NewNormal = NewFloor.HitResult.ImpactNormal;
+	}
 
 	auto VelocityDir = Velocity.GetSafeNormal();
 
@@ -422,43 +512,57 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 	auto Curvature = dd / Length;
 
 	auto VelocitySize = Velocity.Size2D();
-	// UE_LOG(LogTemp, Warning, TEXT("Pos: %s, TanNew: %s, TanOld: %s, dNew: %lf, dOld: %lf, dd: %lf, Length: %lf, Curvature: %lf"), *GroundNew.ToString(), *TanNew.ToString(), *TanOld.ToString(), dNew, dOld, dd, Length, Curvature * VelocitySize * VelocitySize);
+	// UE_LOG(LogTemp, Warning, TEXT("GroundNewPos: %s, GroundOldPos: %s, NormalNew: %s, NormalOld: %s, TanNew: %s, TanOld: %s, dNew: %lf, dOld: %lf, dd: %lf, Length: %lf, Curvature: %lf"), *GroundNew.ToString(), *GroundOld.ToString(), *NewNormal.ToString(), *OldNormal.ToString(), *TanNew.ToString(), *TanOld.ToString(), dNew, dOld, dd, Length, Curvature * VelocitySize * VelocitySize);
 
 	auto OldDot = FVector::DotProduct(OldNormal, VelocityDir);
 	auto NewDot = FVector::DotProduct(NewNormal, VelocityDir);
 
 	if (bUseCurvatureForTakeoff && Curvature * VelocitySize * VelocitySize > TakeoffThreshold)
 	{
-		InAirTime = 0.0f; // 重置空中时间
-		Velocity.Z = CalcStartZVelocity();
 		return true;
 	}
 	else if (!bUseCurvatureForTakeoff && (NewDot - OldDot) >= DeltaNormalThreshold)
 	{
 		// UE_LOG(LogTemp, Warning, TEXT("ShouldCatchAir: OldDot: %f, NewDot: %f, Delta: %f"), OldDot, NewDot, NewDot - OldDot);
-		InAirTime = 0.0f; // 重置空中时间
-		Velocity.Z = CalcStartZVelocity();
 		return true;
 	}
 	return false;
 }
 
-float URunnerMovementComponent::CalcStartZVelocity() const
+double URunnerMovementComponent::CalcStartZVelocity() const
 {
+
 	auto LastRoll = LastTickTargetRotation.Roll;
+	if (OldHit.IsValidBlockingHit())
+	{
+		auto OldHitActor = Cast<ABarrierSpawner>(OldHit.GetActor());
+		if (OldHitActor && OldHitActor->BarrierHasCustomSlope())
+		{
+			LastRoll = OldHitActor->GetCustomSlopeAngle(OldHit);
+		}
+		OldHit.Reset();
+	}
+	UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::CalcStartZVelocity: LastRoll: %f"), LastRoll);
+	auto ResultZ = 0.0;
 
 	// 朝下的方向
 	if (LastRoll >= 0.0f)
 	{
-		auto Alpha = FMath::Clamp(LastRoll / MaxStartRollAngleInAir, 0.0f, 1.0f);
-		return FMath::Lerp(0.0f, ZVelocityInAir, Alpha);
+		auto TanTheta = FMath::Tan(FMath::DegreesToRadians(LastRoll));
+		auto ZVelocity = TanTheta * Velocity.Size2D();
+		// auto Alpha = FMath::Clamp(LastRoll / MaxStartRollAngleInAir, 0.0f, 1.0f);
+		ResultZ = -FMath::Clamp(ZVelocity * TakeoffSpeedScale, 0.0, MaxStartZVelocityInAir);
 	}
 	// 朝上的方向
 	else
 	{
-		auto Alpha = FMath::Clamp(-LastRoll / MaxStartRollAngleInAir, 0.0f, 1.0f);
-		return FMath::Lerp(0.0f, MaxStartZVelocityInAir, Alpha);
+		auto TanTheta = FMath::Tan(FMath::DegreesToRadians(-LastRoll));
+		auto ZVelocity = TanTheta * Velocity.Size2D();
+		// auto Alpha = FMath::Clamp(-LastRoll / MaxStartRollAngleInAir, 0.0f, 1.0f);
+		ResultZ = FMath::Clamp(ZVelocity, 0.0, MaxStartZVelocityInAir);
 	}
+	// UE_LOG(LogTemp, Warning, TEXT("LastRoll: %f, TanTheta: %f, ResultZ: %f"), LastRoll, FMath::Tan(FMath::DegreesToRadians(LastRoll)), ResultZ);
+	return ResultZ;
 }
 
 // MaxWalkingSpeed 此时限制的是 skateboard 的水平速度
@@ -580,58 +684,163 @@ void URunnerMovementComponent::CalcVelocity(float DeltaTime, float Friction, boo
 
 void URunnerMovementComponent::MoveAlongFloor(const FVector& InVelocity, float DeltaSeconds, FStepDownResult* OutStepDownResult)
 {
+	Super::MoveAlongFloor(InVelocity, DeltaSeconds, OutStepDownResult);
+	return;
+	// if (!CurrentFloor.IsWalkableFloor())
+	// {
+	// 	return;
+	// }
+	//
+	// const FVector Delta = ProjectToGravityFloor(InVelocity) * DeltaSeconds;
+	// FHitResult Hit(1.f);
+	// FVector RampVector = ComputeGroundMovementDelta(Delta, CurrentFloor.HitResult, CurrentFloor.bLineTrace);
+	// SafeMoveUpdatedComponent(RampVector, UpdatedComponent->GetComponentQuat(), true, Hit);
+	// float LastMoveTimeSlice = DeltaSeconds;
+	//
+	// if (Hit.bStartPenetrating)
+	// {
+	// 	// TODO: 这代码该如何处理？我不希望 slide along surface，感觉角直接穿过去会更好
+	//
+	// 	// Allow this hit to be used as an impact we can deflect off, otherwise we do nothing the rest of the update and appear to hitch.
+	// 	HandleImpact(Hit);
+	// 	// SlideAlongSurface(Delta, 1.f, Hit.Normal, Hit, true);
+	//
+	// 	if (Hit.bStartPenetrating)
+	// 	{
+	// 		OnCharacterStuckInGeometry(&Hit);
+	// 	}
+	// }
+	// else if (Hit.IsValidBlockingHit())
+	// {
+	// 	// We impacted something (most likely another ramp, but possibly a barrier).
+	// 	float PercentTimeApplied = Hit.Time;
+	// 	if ((Hit.Time > 0.f) && (GetGravitySpaceZ(Hit.Normal) > UE_KINDA_SMALL_NUMBER) && IsWalkable(Hit))
+	// 	{
+	// 		// Another walkable ramp.
+	// 		const float InitialPercentRemaining = 1.f - PercentTimeApplied;
+	// 		// 这里暂时先沿着地面走吧，既然都撞上东西了，应该这里不能飞起来
+	// 		RampVector = ComputeGroundMovementDelta(Delta * InitialPercentRemaining, Hit, false);
+	// 		LastMoveTimeSlice = InitialPercentRemaining * LastMoveTimeSlice;
+	// 		SafeMoveUpdatedComponent(RampVector, UpdatedComponent->GetComponentQuat(), true, Hit);
+	//
+	// 		const float SecondHitPercent = Hit.Time * InitialPercentRemaining;
+	// 		PercentTimeApplied = FMath::Clamp(PercentTimeApplied + SecondHitPercent, 0.f, 1.f);
+	// 	}
+	//
+	// 	if (Hit.IsValidBlockingHit())
+	// 	{
+	// 		HandleImpact(Hit, LastMoveTimeSlice, RampVector);
+	// 	}
+	// }
+}
+
+void URunnerMovementComponent::FindFloor(const FVector& CapsuleLocation, FFindFloorResult& OutFloorResult, bool bCanUseCachedLocation, const FHitResult* DownwardSweepResult) const
+{
+	if (IsWalking())
+	{
+		auto* HitComp = OutFloorResult.HitResult.GetComponent();
+		if (HitComp && HitComp->ComponentHasTag("Takeoff"))
+		{
+			FHitResult OutHit;
+			GetWorld()->LineTraceSingleByChannel(OutHit, CapsuleLocation, CapsuleLocation - FVector(0, 0, TraceDistanceToFindFloor), ECC_GameTraceChannel1);
+			if (!OutHit.IsValidBlockingHit() || (OutHit.GetComponent() != HitComp))
+			{
+				OutFloorResult.Clear();
+				return;
+			}
+		}
+		// FTransform OutInstanceTransform;
+		// auto* ISM = Cast<UInstancedStaticMeshComponent>(HitComp);
+		// if (ISM && ISM->GetInstanceTransform(OutFloorResult.HitResult.Item, OutInstanceTransform))
+		// {
+		// 	UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::FindFloor HitResult: CompName %s, item %d, Rotation: %s"), *HitComp->GetName(), OutFloorResult.HitResult.Item, *OutInstanceTransform.GetRotation().Rotator().ToString());
+		// }
+	}
+	Super::FindFloor(CapsuleLocation, OutFloorResult, bCanUseCachedLocation, DownwardSweepResult);
+}
+
+void URunnerMovementComponent::AdjustFloorHeight()
+{
+	SCOPE_CYCLE_COUNTER(STAT_SkateboardAdjustFloorHeight);
+
+	// If we have a floor check that hasn't hit anything, don't adjust height.
 	if (!CurrentFloor.IsWalkableFloor())
 	{
 		return;
 	}
 
-	const FVector Delta = ProjectToGravityFloor(InVelocity) * DeltaSeconds;
-	FHitResult Hit(1.f);
-	FVector RampVector = ComputeGroundMovementDelta(Delta, CurrentFloor.HitResult, CurrentFloor.bLineTrace);
-	SafeMoveUpdatedComponent(RampVector, UpdatedComponent->GetComponentQuat(), true, Hit);
-	float LastMoveTimeSlice = DeltaSeconds;
-
-	if (Hit.bStartPenetrating)
+	float OldFloorDist = CurrentFloor.FloorDist;
+	if (CurrentFloor.bLineTrace)
 	{
-		// TODO: 这代码该如何处理？我不希望 slide along surface，感觉角直接穿过去会更好
-
-		// Allow this hit to be used as an impact we can deflect off, otherwise we do nothing the rest of the update and appear to hitch.
-		HandleImpact(Hit);
-		// SlideAlongSurface(Delta, 1.f, Hit.Normal, Hit, true);
-
-		if (Hit.bStartPenetrating)
+		if (OldFloorDist < MIN_FLOOR_DIST && CurrentFloor.LineDist >= MIN_FLOOR_DIST)
 		{
-			OnCharacterStuckInGeometry(&Hit);
+			// This would cause us to scale unwalkable walls
+			UE_LOG(LogTemp, VeryVerbose, TEXT("Adjust floor height aborting due to line trace with small floor distance (line: %.2f, sweep: %.2f)"), CurrentFloor.LineDist, CurrentFloor.FloorDist);
+			return;
+		}
+		else
+		{
+			// Falling back to a line trace means the sweep was unwalkable (or in penetration). Use the line distance for the vertical adjustment.
+			OldFloorDist = CurrentFloor.LineDist;
 		}
 	}
-	else if (Hit.IsValidBlockingHit())
-	{
-		// We impacted something (most likely another ramp, but possibly a barrier).
-		float PercentTimeApplied = Hit.Time;
-		if ((Hit.Time > 0.f) && (GetGravitySpaceZ(Hit.Normal) > UE_KINDA_SMALL_NUMBER) && IsWalkable(Hit))
-		{
-			// Another walkable ramp.
-			const float InitialPercentRemaining = 1.f - PercentTimeApplied;
-			// 这里暂时先沿着地面走吧，既然都撞上东西了，应该这里不能飞起来
-			RampVector = ComputeGroundMovementDelta(Delta * InitialPercentRemaining, Hit, false);
-			LastMoveTimeSlice = InitialPercentRemaining * LastMoveTimeSlice;
-			SafeMoveUpdatedComponent(RampVector, UpdatedComponent->GetComponentQuat(), true, Hit);
 
-			const float SecondHitPercent = Hit.Time * InitialPercentRemaining;
-			PercentTimeApplied = FMath::Clamp(PercentTimeApplied + SecondHitPercent, 0.f, 1.f);
+	// Move up or down to maintain floor height.
+	if (OldFloorDist < MIN_FLOOR_DIST || OldFloorDist > MAX_FLOOR_DIST)
+	{
+		FHitResult AdjustHit(1.f);
+		const double InitialZ = GetGravitySpaceZ(UpdatedComponent->GetComponentLocation());
+		const float AvgFloorDist = (MIN_FLOOR_DIST + MAX_FLOOR_DIST) * 0.5f;
+		float MoveDist = AvgFloorDist - OldFloorDist;
+
+		// 新增逻辑, 不允许在起跳板上向下跑
+		if (CurrentFloor.HitResult.IsValidBlockingHit())
+		{
+			auto HitComponent = CurrentFloor.HitResult.GetComponent();
+			if (HitComponent && HitComponent->ComponentHasTag("Takeoff"))
+			{
+				MoveDist = FMath::Max(MoveDist, 0.0f);
+			}
 		}
 
-		if (Hit.IsValidBlockingHit())
+		SafeMoveUpdatedComponent(MoveDist * -GetGravityDirection(), UpdatedComponent->GetComponentQuat(), true, AdjustHit );
+		UE_LOG(LogTemp, VeryVerbose, TEXT("Adjust floor height %.3f (Hit = %d)"), MoveDist, AdjustHit.bBlockingHit);
+
+		if (!AdjustHit.IsValidBlockingHit())
 		{
-			HandleImpact(Hit, LastMoveTimeSlice, RampVector);
+			CurrentFloor.FloorDist += MoveDist;
+		}
+		else if (MoveDist > 0.f)
+		{
+			const double CurrentZ = GetGravitySpaceZ(UpdatedComponent->GetComponentLocation());
+			CurrentFloor.FloorDist += CurrentZ - InitialZ;
+		}
+		else
+		{
+			checkSlow(MoveDist < 0.f);
+			CurrentFloor.FloorDist = GetGravitySpaceZ(UpdatedComponent->GetComponentLocation() - AdjustHit.Location);
+			if (IsWalkable(AdjustHit))
+			{
+				CurrentFloor.SetFromSweep(AdjustHit, CurrentFloor.FloorDist, true);
+			}
+		}
+
+		// Don't recalculate velocity based on this height adjustment, if considering vertical adjustments.
+		// Also avoid it if we moved out of penetration
+		bJustTeleported |= !bMaintainHorizontalGroundVelocity || (OldFloorDist < 0.f);
+		
+		// If something caused us to adjust our height (especially a depentration) we should ensure another check next frame or we will keep a stale result.
+		if (CharacterOwner && CharacterOwner->GetLocalRole() != ROLE_SimulatedProxy)
+		{
+			bForceNextFloorCheck = true;
 		}
 	}
 }
 
 void URunnerMovementComponent::PhysWalking(float deltaTime, int32 Iterations)
 {
-	// Super::PhysWalking(deltaTime, Iterations);
-	PhysWalking2(deltaTime, Iterations);
+	Super::PhysWalking(deltaTime, Iterations);
+	// PhysWalking2(deltaTime, Iterations);
 }
 
 void URunnerMovementComponent::PhysWalking2(float deltaTime, int32 Iterations)
@@ -853,8 +1062,8 @@ void URunnerMovementComponent::PhysWalking2(float deltaTime, int32 Iterations)
 
 void URunnerMovementComponent::PhysFalling(float deltaTime, int32 Iterations)
 {
-	// Super::PhysFalling(deltaTime, Iterations);
-	PhysFalling2(deltaTime, Iterations);
+	Super::PhysFalling(deltaTime, Iterations);
+	// PhysFalling2(deltaTime, Iterations);
 }
 
 void URunnerMovementComponent::PhysFalling2(float deltaTime, int32 Iterations)

@@ -13,11 +13,12 @@ void ADebugBoxSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Po
 
   for (auto& Point : Positions)
   {
-    WorldGenerator->TransformUVToWorldPos(Point, Tile);
+    FTransform Transform;
+    GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
     FVector BoxExtent = FVector(50.0f / 2.0f, 50.0f / 2.0f, 50.0f / 2.0f);
 
     // Spawn a debug box at the calculated position
-    DrawDebugBox(WorldGenerator->GetWorld(), Point.Transform.GetTranslation(), BoxExtent, FColor::Red, true, -1.0f, 0, 5.0f);
+    DrawDebugBox(WorldGenerator->GetWorld(), Transform.GetTranslation(), BoxExtent, FColor::Red, true, -1.0f, 0, 5.0f);
   }
 }
 

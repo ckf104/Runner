@@ -13,6 +13,7 @@
 #include "HAL/Platform.h"
 #include "Kismet/GameplayStatics.h"
 #include "KismetProceduralMeshLibrary.h"
+#include "KismetTraceUtils.h"
 #include "Math/Color.h"
 #include "Math/MathFwd.h"
 #include "ProceduralMeshComponent.h"
@@ -172,7 +173,7 @@ TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetPMCFromHorizontalPos
 	for (int32 i = 0; i < MaxRegionCount; ++i)
 	{
 		UProceduralMeshComponent* PMC = ProceduralMeshComp[i];
-		if (!PMC)
+		if (!PMC || PMC->GetNumSections() == 0)
 		{
 			ReplacableIndex = i;
 		}
@@ -185,13 +186,19 @@ TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetPMCFromHorizontalPos
 	if (ReplacableIndex != -1)
 	{
 		auto* NonConstThis = const_cast<AWorldGenerator*>(this);
-		auto* PMC = NewObject<UProceduralMeshComponent>(NonConstThis, UProceduralMeshComponent::StaticClass(), NAME_None);
-		UE_LOG(LogTemp, Warning, TEXT("Creating new PMC for region: %s at index %d, input position: %s"), *Region.ToString(), ReplacableIndex, *Pos.ToString());
-		PMC->bUseAsyncCooking = true; // 重中之重！！
-		PMC->RegisterComponent();
+		UProceduralMeshComponent* PMC = ProceduralMeshComp[ReplacableIndex];
+		if (!PMC)
+		{
+			PMC = NewObject<UProceduralMeshComponent>(NonConstThis, UProceduralMeshComponent::StaticClass(), NAME_None);
+			UE_LOG(LogTemp, Warning, TEXT("Creating new PMC for region: %s at index %d, input position: %s"), *Region.ToString(), ReplacableIndex, *Pos.ToString());
+			PMC->bUseAsyncCooking = true; // 重中之重！！
+			PMC->SetCollisionProfileName(TEXT("BlockAll"));
+			PMC->RegisterComponent();
+			PMC->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
+			ProceduralMeshComp[ReplacableIndex] = PMC; // Replace the PMC at the found index
+		}
 		PMC->SetWorldLocation(FVector(Region.X * RegionSize, Region.Y * RegionSize, 0.0f));
-		PMC->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
-		ProceduralMeshComp[ReplacableIndex] = PMC;							// Replace the PMC at the found index
+
 		VersionNumber[ReplacableIndex] = ++CurrentVersionIndex; // Update version number
 		return { PMC, ReplacableIndex };
 	}
@@ -364,6 +371,53 @@ double AWorldGenerator::GetHeightFromPerlinAnyThread(FVector2D Pos, FInt32Point 
 	return Height;
 }
 
+FVector AWorldGenerator::GetNormalFromHorizontalPos(FVector2D Pos) const
+{
+	FInt32Point Tile;
+	auto UV = GetUVandTileFromPos(Pos, Tile);
+
+	UProceduralMeshComponent* PMC = nullptr;
+	int32 PMCIndex = -1;
+	Tie(PMC, PMCIndex) = GetPMCFromHorizontalPos(Pos);
+	auto MeshSection = TileMap[PMCIndex].Find(Tile);
+	if (MeshSection == INDEX_NONE)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Tile not found in TileMap for position: %s"), *Pos.ToString());
+		return FVector::UpVector; // Tile not found
+	}
+
+	auto* MeshInfo = PMC->GetProcMeshSection(MeshSection);
+	if (!MeshInfo)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Mesh section not found for PMC at index %d"), PMCIndex);
+		return FVector::UpVector; // Mesh section not found
+	}
+
+	FVector2D BarycentricCoords;
+	auto TriangleIndex = GetTriangleFromUV(UV, BarycentricCoords);
+
+	auto V1 = MeshInfo->ProcIndexBuffer[TriangleIndex * 3 + 0];
+	auto V2 = MeshInfo->ProcIndexBuffer[TriangleIndex * 3 + 1];
+	auto V3 = MeshInfo->ProcIndexBuffer[TriangleIndex * 3 + 2];
+
+	auto Normal1 = MeshInfo->ProcVertexBuffer[V1].Normal;
+	auto Normal2 = MeshInfo->ProcVertexBuffer[V2].Normal;
+	auto Normal3 = MeshInfo->ProcVertexBuffer[V3].Normal;
+
+	auto InterpNormal = Normal1 * BarycentricCoords.X + Normal2 * BarycentricCoords.Y + Normal3 * (1.0 - BarycentricCoords.X - BarycentricCoords.Y);
+	InterpNormal.Normalize();
+
+	return InterpNormal;
+}
+
+FVector AWorldGenerator::GetNormalFromUVandTile(FVector2D UV, FInt32Point Tile) const
+{
+	auto TileXSize = CellSize * XCellNumber;
+	auto TileYSize = CellSize * YCellNumber;
+	auto Pos = FVector2D((Tile.X + UV.X) * TileXSize, (Tile.Y + UV.Y) * TileYSize);
+	return GetNormalFromHorizontalPos(Pos);
+}
+
 void AWorldGenerator::CreateMeshFromTileData()
 {
 	for (int32 i = 0; i < MaxThreadCount; ++i)
@@ -429,6 +483,30 @@ void AWorldGenerator::CreateMeshFromTileData()
 			TilesInBuilding[i] = FInt32Point(INT32_MAX, INT32_MAX); // Reset the tile in building
 		}
 	}
+}
+
+void AWorldGenerator::PMCClear(int32 ReplaceableIndex)
+{
+	if (ReplaceableIndex < 0 || ReplaceableIndex >= MaxRegionCount)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Invalid PMC index: %d"), ReplaceableIndex);
+		return;
+	}
+
+	UProceduralMeshComponent* PMC = ProceduralMeshComp[ReplaceableIndex];
+	auto OldRegion = GetRegionFromPMC(PMC);
+	UE_LOG(LogTemp, Warning, TEXT("Clear PMC for old region: %s"),
+			*OldRegion.ToString());
+	PMC->ClearAllMeshSections();
+
+	for (auto Tile : TileMap[ReplaceableIndex])
+	{
+		for (ABarrierSpawner* Spawner : BarrierSpawners)
+		{
+			Spawner->RemoveTile(Tile);
+		}
+	}
+	TileMap[ReplaceableIndex].Empty(); // Clear the tile map for this PMC
 }
 
 bool AWorldGenerator::GenerateOneTile(FInt32Point Tile)
@@ -503,7 +581,6 @@ void AWorldGenerator::GenerateNewTiles()
 				}
 			}
 		}
-		return;
 	}
 	else
 	{
@@ -521,6 +598,27 @@ void AWorldGenerator::GenerateNewTiles()
 						break;
 					}
 				}
+			}
+		}
+	}
+
+	for (int32 i = 0; i < MaxRegionCount; ++i)
+	{
+		if (TileMap[i].Num() > 0)
+		{
+			auto bHasNeccessaryTiles = false;
+			for (auto Tile : TileMap[i])
+			{
+				if (IsNeccessrayTile(Tile))
+				{
+					bHasNeccessaryTiles = true;
+					break;
+				}
+			}
+			if (!bHasNeccessaryTiles)
+			{
+				// 如果没有必要的 tile，则清除这个 PMC
+				PMCClear(i);
 			}
 		}
 	}
@@ -570,7 +668,7 @@ int32 AWorldGenerator::GetTriangleFromUV(FVector2D UV, FVector2D& BarycentricCoo
 	return (TriangleY * XCellNumber + TriangleX) * 2 + bBottomTriangle;
 }
 
-FVector AWorldGenerator::GetWorldPositionFromUV(FVector2D UV, FInt32Point Tile) const
+FVector AWorldGenerator::GetVisualWorldPositionFromUV(FVector2D UV, FInt32Point Tile) const
 {
 	auto TestPos = FVector2D((Tile.X + 0.5) * CellSize * XCellNumber, (Tile.Y + 0.5) * CellSize * YCellNumber);
 	UProceduralMeshComponent* PMC = nullptr;
@@ -579,12 +677,14 @@ FVector AWorldGenerator::GetWorldPositionFromUV(FVector2D UV, FInt32Point Tile) 
 	auto MeshSection = TileMap[PMCIndex].Find(Tile);
 	if (MeshSection == INDEX_NONE)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("Tile not found in TileMap for position: %s"), *TestPos.ToString());
 		return FVector::ZeroVector; // Tile not found
 	}
 
 	auto* MeshInfo = PMC->GetProcMeshSection(MeshSection);
 	if (!MeshInfo)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("Mesh section not found for PMC at index %d"), PMCIndex);
 		return FVector::ZeroVector; // Mesh section not found
 	}
 	FVector2D BarycentricCoords;
@@ -602,29 +702,58 @@ FVector AWorldGenerator::GetWorldPositionFromUV(FVector2D UV, FInt32Point Tile) 
 	return WPos + PMC->GetComponentLocation(); // Add the component location to get the world position
 }
 
-double AWorldGenerator::GetHeightFromHorizontalPos(FVector2D Pos) const
+FVector2D AWorldGenerator::GetUVandTileFromPos(FVector2D Pos, FInt32Point& Tile) const
 {
-	// 计算 UV 坐标
-	auto Tile = GetTileFromHorizontalPos(Pos);
 	auto TileXSize = CellSize * XCellNumber;
 	auto TileYSize = CellSize * YCellNumber;
+	Tile = FInt32Point(FMath::FloorToInt(Pos.X / TileXSize), FMath::FloorToInt(Pos.Y / TileYSize));
 
 	auto TileStartX = Tile.X * TileXSize;
 	auto TileStartY = Tile.Y * TileYSize;
 	auto UVX = (Pos.X - TileStartX) / TileXSize;
 	auto UVY = (Pos.Y - TileStartY) / TileYSize;
-	FVector2D UV = FVector2D(UVX, UVY);
+	return FVector2D(UVX, UVY);
+}
 
-	auto WorldPos = GetWorldPositionFromUV(UV, Tile);
+double AWorldGenerator::GetVisualHeightFromHorizontalPos(FVector2D Pos) const
+{
+	FInt32Point Tile;
+	auto UV = GetUVandTileFromPos(Pos, Tile);
+
+	auto WorldPos = GetVisualWorldPositionFromUV(UV, Tile);
 	return WorldPos.Z; // 返回高度
 }
 
-void AWorldGenerator::TransformUVToWorldPos(RandomPoint& Point, FInt32Point Tile) const
+double AWorldGenerator::GetHeightFromHorizontalPos(FVector2D Pos /*, UPrimitiveComponent*& HitComponent*/) const
 {
-	auto UVPos = Point.Transform.GetLocation();
-	auto WorldPos = GetWorldPositionFromUV(FVector2D(UVPos), Tile);
-	Point.Transform.SetTranslation(WorldPos);
+	auto GroundHeight = GetVisualHeightFromHorizontalPos(Pos);
+	auto GroundPos = FVector(Pos.X, Pos.Y, GroundHeight);
+	FVector Start = GroundPos + FVector(0, 0, 500);
+	FVector End = GroundPos + FVector(0, 0, -500); // 向下射线
+	FHitResult OutHit;
+
+	// See https://gamedev.stackexchange.com/questions/178811/set-the-linetracebychannel-to-use-my-custom-created-channel-c
+	// and See DefaultEngine.ini
+	GetWorld()->LineTraceSingleByChannel(OutHit, Start, End, ECC_GameTraceChannel1);
+	// DrawDebugLineTraceSingle(GetWorld(), Start, End, EDrawDebugTrace::ForDuration, OutHit.IsValidBlockingHit(), OutHit, FLinearColor::Red, FLinearColor::Green, 1.0f);
+	if (OutHit.IsValidBlockingHit())
+	{
+		auto* HitActor = OutHit.GetActor();
+		// HitComponent = OutHit.GetComponent();
+		if (HitActor && HitActor != this)
+		{
+			return OutHit.ImpactPoint.Z; // 返回碰撞点的高度
+		}
+	}
+	return GroundPos.Z;
 }
+
+// FVector AWorldGenerator::TransformUVToWorldPos(const RandomPoint& Point, FInt32Point Tile) const
+// {
+// 	auto UVPos = Point.Transform.GetLocation();
+// 	auto WorldPos = GetVisualWorldPositionFromUV(FVector2D(UVPos), Tile);
+// 	Point.Transform.SetTranslation(WorldPos);
+// }
 
 void AWorldGenerator::GenerateOneTileAsync(int32 BufferIndex, FInt32Point Tile, FVector2D PositionOffset)
 {
@@ -678,12 +807,17 @@ void AWorldGenerator::GenerateRandomPointsAsync(int32 BufferIndex, FInt32Point T
 	for (int32 i = 0; i < TotalBarrierCount; ++i)
 	{
 		auto& Point = RandomPoints[i];
-		auto UVPos = FVector::ZeroVector;
+		auto UVPos = FVector2D::ZeroVector;
 		UVPos.X = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
 		UVPos.Y = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
-		Point.Transform.SetTranslation(UVPos);
-		Point.Transform.SetRotation(FRotator::ZeroRotator.Quaternion()); // 设置默认旋转
-		Point.Transform.SetScale3D(FVector(1.0, 1.0, 1.0));							 // 设置默认缩放
+		Point.UVPos = UVPos;
+		auto Rotation = FRotator::ZeroRotator;
+		Rotation.Yaw = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
+		Rotation.Pitch = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
+		Rotation.Roll = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
+
+		Point.Rotation = Rotation;
+		Point.Scale = FVector(1.0, 1.0, 1.0); // 设置默认缩放
 	}
 }
 

@@ -3,25 +3,50 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/HitResult.h"
 #include "GameFramework/Actor.h"
 #include "Math/MathFwd.h"
 #include "WorldGenerator.h"
 #include "BarrierSpawner.generated.h"
 
+UENUM()
+enum class EAlignMode : uint8
+{
+	None,
+	AlignNormal,	// 对齐到地面法线
+	AlignGravity, // 对齐到重力方向
+};
+
 UCLASS(Abstract)
 class RUNNER_API ABarrierSpawner : public AActor
 {
 	GENERATED_BODY()
-	
-public:	
+
+public:
 	// Sets default values for this actor's properties
 	ABarrierSpawner();
 
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
+	EAlignMode AlignMode = EAlignMode::AlignGravity; // 对齐模式
+
+	// 障碍物的偏移量，使得障碍物能陷到地里去
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
+	float BarrierOffset = 0.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
+	float BarrierRadius = 10.0f; // 障碍物半径
+
 protected:
+	void TransformAlign(FVector& Location, FRotator& Rotation, AWorldGenerator* WorldGenerator) const;
+	void GetTransformFromSeed(FTransform& OutTransform, const RandomPoint& Seed, FInt32Point Tile, AWorldGenerator* WorldGenerator) const;
 
-public:	
+	virtual FRotator GetRotationFromSeed(FRotator Seed) const;
 
+public:
 	virtual void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) {};
-	virtual void RemoveTile(FInt32Point Tile) {};	
+	virtual void RemoveTile(FInt32Point Tile) {};
 	virtual int32 GetBarrierCountAnyThread(double RandomValue) const { return 10; }
+
+	virtual bool BarrierHasCustomSlope() const { return false; }
+	virtual double GetCustomSlopeAngle(const FHitResult& Floor) const { return 0.0; }
 };

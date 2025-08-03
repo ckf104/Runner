@@ -33,7 +33,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
 	int32 MaxBarrierCount = 60; // 最大障碍物数量
 
-private:
+protected:
 	// 每个 tile 上的静态网格体实例编号
 	TMap<FInt32Point, TArray<int32>> TileInstanceIndices;
 

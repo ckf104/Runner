@@ -19,8 +19,8 @@ void ABPBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 
 	for (auto& Point : Positions)
 	{
-		WorldGenerator->TransformUVToWorldPos(Point, Tile);
-		FVector WorldPosition = Point.Transform.GetTranslation();
+    FTransform Transform;
+    GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
 		AActor* CachedActor = nullptr;
 
 		// 检查是否有缓存的障碍物可用
@@ -35,11 +35,11 @@ void ABPBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 		}
 		if (CachedActor)
 		{
-			CachedActor->SetActorRelativeTransform(Point.Transform);
+			CachedActor->SetActorRelativeTransform(Transform);
 		}
 		else
 		{
-			CachedActor = GetWorld()->SpawnActor<AActor>(BarrierClass, Point.Transform);
+			CachedActor = GetWorld()->SpawnActor<AActor>(BarrierClass, Transform);
 		}
 		SpawnedBarriers.Add(Tile, CachedActor);
 	}

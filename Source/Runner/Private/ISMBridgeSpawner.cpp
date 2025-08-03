@@ -1,26 +1,22 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-#include "ISMBarrierSpawner.h"
-#include "Components/InstancedStaticMeshComponent.h"
-#include "Containers/AllowShrinking.h"
+
+#include "ISMBridgeSpawner.h"
 #include "Math/MathFwd.h"
-#include "Misc/AssertionMacros.h"
 
-AISMBarrierSpawner::AISMBarrierSpawner()
+AISMBridgeSpawner::AISMBridgeSpawner()
 {
-	// Create the Instanced Static Mesh Component
-	ISMComponent = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("ISMComponent"));
-	RootComponent = ISMComponent;
-	ISMComponent->SetMobility(EComponentMobility::Static);
+  AlignMode = EAlignMode::AlignNormal; // 默认对齐模式为 AlignNormal
 }
 
-int32 AISMBarrierSpawner::GetBarrierCountAnyThread(double RandomValue) const
+FRotator AISMBridgeSpawner::GetRotationFromSeed(FRotator Seed) const
 {
-	// 根据随机值返回障碍物数量
-	return FMath::RoundToInt(float(FMath::Lerp(MinBarrierCount, MaxBarrierCount, RandomValue)));
+  FRotator Rotation = FRotator::ZeroRotator;
+  Rotation.Pitch = FMath::Lerp(MinBridgeAngle, MaxBridgeAngle, Seed.Pitch);
+  return Rotation;
 }
 
-void AISMBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator)
+void AISMBridgeSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator)
 {
 	if (!ISMComponent || !WorldGenerator)
 	{
@@ -34,6 +30,9 @@ void AISMBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32
 	{
     FTransform Transform;
     GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
+    auto Rotator = Transform.GetRotation().Rotator();
+    Rotator.Pitch = FMath::Min(Rotator.Pitch, MaxBridgeAngle);
+    Transform.SetRotation(Rotator.Quaternion());
 
 		if (ReplaceInstanceIndices.Num() > 0)
 		{
@@ -55,12 +54,11 @@ void AISMBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32
 	TileInstanceIndices.Add(Tile, InstanceIndices);
 }
 
-void AISMBarrierSpawner::RemoveTile(FInt32Point Tile)
+double AISMBridgeSpawner::GetCustomSlopeAngle(const FHitResult& Floor) const
 {
-	auto InstanceIndices = TileInstanceIndices.Find(Tile);
-	if (InstanceIndices)
-	{
-		ReplaceInstanceIndices.Append(*InstanceIndices);
-		TileInstanceIndices.Remove(Tile);
-	}
+  FTransform Transform;
+  ISMComponent->GetInstanceTransform(Floor.Item, Transform);
+
+  auto PitchAngle = Transform.GetRotation().Rotator().Pitch;
+  return -PitchAngle;
 }

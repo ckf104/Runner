@@ -60,7 +60,9 @@ class ARunnerCharacter : public ACharacter
 public:
 	ARunnerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
-	void TakeHitImpact(const FHitResult& Hit);
+	void TakeHitImpact();
+	void NotifyActorBeginOverlap(AActor* OtherActor) override;
+	void NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit) override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float TurnSpeedScale = 0.2f;

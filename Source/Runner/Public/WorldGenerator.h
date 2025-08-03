@@ -14,8 +14,9 @@
 
 struct RandomPoint
 {
-	// position 是包含 UV 坐标
-	FTransform Transform;
+	FVector2D UVPos;  // 0 - 1 的随机变量表示点的坐标
+	FRotator Rotation;  // 0 - 1 的随机变量表示点的旋转
+	FVector Scale;
 };
 
 UENUM()
@@ -32,7 +33,7 @@ class RUNNER_API AWorldGenerator : public AActor
 	GENERATED_BODY()
 
 public:
-	static constexpr int32 MaxRegionCount = 4; // 最多同时存在的 Region 数量
+	static constexpr int32 MaxRegionCount = 2; // 最多同时存在的 Region 数量
 	static constexpr int32 MaxThreadCount = 4; // 最大线程数
 
 	// Sets default values for this actor's properties
@@ -154,11 +155,22 @@ public:
 		return FInt32Point(FMath::FloorToInt(TestPos.X / RegionSize), FMath::FloorToInt(TestPos.Y / RegionSize));
 	}
 	FInt32Point GetTileFromHorizontalPos(FVector2D Pos) const;
-	double GetHeightFromHorizontalPos(FVector2D Pos) const;
-	FVector GetWorldPositionFromUV(FVector2D UV, FInt32Point Tile) const;
-	int32 GetTriangleFromUV(FVector2D UV, FVector2D& BarycentricCoords) const;
+	
+	// Visual 表示这里的高度和位置是不考虑障碍物，仅考虑地形的
+	double GetVisualHeightFromHorizontalPos(FVector2D Pos) const;
+	FVector GetVisualWorldPositionFromUV(FVector2D UV, FInt32Point Tile) const;
 
-	void TransformUVToWorldPos(RandomPoint& Point, FInt32Point Tile) const;
+	// 这里的高度不仅考虑地形，还会考虑障碍物
+	double GetHeightFromHorizontalPos(FVector2D Pos/*, class UPrimitiveComponent*& HitComponent*/) const;
+
+	FVector2D GetUVandTileFromPos(FVector2D Pos, FInt32Point& Tile) const;
+	int32 GetTriangleFromUV(FVector2D UV, FVector2D& BarycentricCoords) const;
+	FVector GetNormalFromHorizontalPos(FVector2D Pos) const;
+	FVector GetNormalFromUVandTile(FVector2D UV, FInt32Point Tile) const;
+
+	void PMCClear(int32 PMCIndex);
+
+	// FVector TransformUVToWorldPos(RandomPoint& Point, FInt32Point Tile) const;
 
 	void OnConstruction(const FTransform& Transform) override;
 

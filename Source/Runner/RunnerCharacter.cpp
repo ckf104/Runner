@@ -313,7 +313,7 @@ void ARunnerCharacter::InitUI()
 	}
 }
 
-void ARunnerCharacter::TakeHitImpact(const FHitResult& Hit)
+void ARunnerCharacter::TakeHitImpact()
 {
 	if (HealthBarWidget)
 	{
@@ -333,4 +333,24 @@ void ARunnerCharacter::TakeHitImpact(const FHitResult& Hit)
 	// auto RealHitSlomoTime = HitSlomoTime * HitSlomo;
 	// GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { UGameplayStatics::SetGlobalTimeDilation(this, 1.0f); }, RealHitSlomoTime, false);
 	GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { CustomTimeDilation = 1.0f; }, HitSlomoTime, false);
+}
+
+// defered movement update 中会检查 collision channel 是否仍然为 block!
+void ARunnerCharacter::NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit)
+{
+	Super::NotifyHit(MyComp, Other, OtherComp, bSelfMoved, HitLocation, HitNormal, NormalImpulse, Hit);
+	// Handle hit impact
+	// auto bBlockingHit = Cast<URunnerMovementComponent>(GetMovementComponent())->HandleBlockingHit(Hit);
+	// if (bBlockingHit)
+	// {
+	// 	UE_LOG(LogTemplateCharacter, Warning, TEXT("ARunnerCharacter::NotifyHit: %s Blocking Hit %s"), *MyComp->GetName(), *OtherComp->GetName());
+	// 	TakeHitImpact();
+	// }
+}
+
+void ARunnerCharacter::NotifyActorBeginOverlap(AActor* OtherActor)
+{
+	Super::NotifyActorBeginOverlap(OtherActor);
+	TakeHitImpact();
+	UE_LOG(LogTemplateCharacter, Warning, TEXT("ARunnerCharacter::NotifyActorBeginOverlap: %s"), *OtherActor->GetName());
 }

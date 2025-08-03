@@ -133,12 +133,25 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float TakeoffThreshold = 800.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
+	float TakeoffSpeedScale = 0.5f;
+
+	// 寻找木板的 trace 长度
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
+	float TraceDistanceToFindFloor = 200.0f;
+
 	// 是否使用曲率来判断起飞
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	bool bUseCurvatureForTakeoff = true;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
+	bool bUseVisualNormal = true;
+
 protected:
 	void BeginPlay() override;
+
+	void FindFloor(const FVector& CapsuleLocation, FFindFloorResult& OutFloorResult, bool bCanUseCachedLocation, const FHitResult* DownwardSweepResult = NULL) const override;
+	void AdjustFloorHeight() override;
 
 	void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	void PhysWalking(float deltaTime, int32 Iterations) override;
@@ -160,8 +173,14 @@ protected:
 public:
 	void StartThrust();
 	void StopThrust();
+	bool HandleBlockingHit(const FHitResult& Hit);
+
+	void StartFalling(int32 Iterations, float remainingTime, float timeTick, const FVector& Delta, const FVector& subLoc) override;
+	bool CheckFall(const FFindFloorResult& OldFloor, const FHitResult& Hit, const FVector& Delta, const FVector& OldLocation, float remainingTime, float timeTick, int32 Iterations, bool bMustJump) override;
 
 private:
+	mutable FHitResult OldHit;
+
 	UPROPERTY()
 	TObjectPtr<class USkeletalMeshComponent> SkateboardMesh;
 
@@ -179,7 +198,7 @@ private:
 
 	FRotator CalcWakingTargetRotation(bool& bAccuracy) const;
 	// 计算起飞时的 Z 速度
-	float CalcStartZVelocity() const;
+	double CalcStartZVelocity() const;
 
 	ELevel CalcLandLevel(FRotator TargetRotation) const;
 
