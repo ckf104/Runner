@@ -242,6 +242,7 @@ public:
 	float EvilChaseSpeed = 1800.0f;
 
 	double GetEvilPos() { return EvilPos; }
+	void SetGameStart() { bGameStart = true; }
 
 public:
 	UPROPERTY(EditAnywhere, Category = "Missile")
@@ -253,6 +254,9 @@ public:
 private:
 	void UpdateEvilPos(float DeltaTime);
 
+	bool bGameStart = false;
+
+	UPROPERTY(EditAnywhere, Category = "Evil Chase", meta = (AllowPrivateAccess = "true"))
 	double EvilPos;
 
 	// 多线程数据

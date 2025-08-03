@@ -169,13 +169,13 @@ void ARunnerCharacter::Tick(float Delta)
 	// ARunnerCharacter::Move(FInputActionValue(FVector2D(0.0f, 0.0f))); // Call Move with default values to ensure movement logic is processed
 	// Add any character-specific tick logic here
 	TurnDirection(Delta);
-	if (bAutoMove)
-	{
-		AddMovementInput(GetActorForwardVector(), 1.0f);
-		// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::Tick called with Delta: %s"), *GetVelocity().ToString());
-	}
+	// if (bAutoMove)
+	// {
+	// 	AddMovementInput(GetActorForwardVector(), 1.0f);
+	// 	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::Tick called with Delta: %s"), *GetVelocity().ToString());
+	// }
 
-	if (Thrusting & static_cast<int8>(EThrustSource::UserThrust))
+	if ((Thrusting & static_cast<int8>(EThrustSource::UserThrust)) && (Thrusting & static_cast<int8>(EThrustSource::FreeThrust)) == 0)
 	{
 		Mana -= ManaReduceSpeed * Delta;
 		if (Mana <= 0.0f)
@@ -296,7 +296,7 @@ void ARunnerCharacter::Move(const FInputActionValue& Value)
 		YawTurnInput += MovementVector.X;
 
 		// add movement
-		AddMovementInput(ForwardDirection, FMath::Clamp(MovementVector.Y, 0.0f, 1.0f));
+		// AddMovementInput(ForwardDirection, FMath::Clamp(MovementVector.Y, 0.0f, 1.0f));
 		// AddMovementInput(ForwardDirection, -1.0f);
 		// AddMovementInput(RightDirection, MovementVector.X);
 	}

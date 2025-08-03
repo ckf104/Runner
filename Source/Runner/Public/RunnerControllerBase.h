@@ -18,5 +18,12 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Runner")
 	void GameOver(int32 EndScore);
 
+	UFUNCTION(BlueprintCallable, Category = "Runner")
+	void WhenCountDownOver();
+
+	UPROPERTY(EditAnywhere, Category = "Runner")
+	float StartThrustTime = 0.5f;
+
 	FRotator GetControlRotation() const override;
+
 };

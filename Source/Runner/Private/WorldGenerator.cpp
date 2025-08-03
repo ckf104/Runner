@@ -101,7 +101,6 @@ void AWorldGenerator::BeginPlay()
 
 	// Set EvilPos to minimum double
 	// EvilPos = TNumericLimits<double>::Lowest();
-	EvilPos = 0.0;
 	// float MatTextureSize, MaxMatTextureCoords, MatTileSize;
 	// TileMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo("TextureSize"), MatTextureSize);
 	// TileMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo("MaxTexCoords"), MaxMatTextureCoords);
@@ -167,14 +166,17 @@ void AWorldGenerator::Tick(float DeltaTime)
 
 void AWorldGenerator::UpdateEvilPos(float DeltaTime)
 {
-	auto PlayerTile = GetPlayerTile();
-	auto TileSizeX = CellSize * XCellNumber;
+	if (bGameStart)
+	{
+		auto PlayerTile = GetPlayerTile();
+		auto TileSizeX = CellSize * XCellNumber;
 
-	auto MinPos = double(TileSizeX) * (PlayerTile.X - 1);
-	auto NewEvilPos = EvilPos + (EvilChaseSpeed * DeltaTime);
-	EvilPos = FMath::Max(MinPos, NewEvilPos);
+		auto MinPos = double(TileSizeX) * (PlayerTile.X - 1);
+		auto NewEvilPos = EvilPos + (EvilChaseSpeed * DeltaTime);
+		EvilPos = FMath::Max(MinPos, NewEvilPos);
 
-	UKismetMaterialLibrary::SetScalarParameterValue(this, EvilChaseMaterialCollection, "EvilPos", float(EvilPos / TileSizeX));
+		UKismetMaterialLibrary::SetScalarParameterValue(this, EvilChaseMaterialCollection, "EvilPos", float(EvilPos / TileSizeX));
+	}
 }
 
 void AWorldGenerator::DebugPrint() const
@@ -1085,7 +1087,7 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray
 		// 根据比例计算每个 Spawner 实际的障碍物数量
 		int32 RealTotalBarrierCount = 0;
 		auto SampleScale = FMath::Min(float(SampleNumber) / ExpectedBarrierCount, 1.0f);
-		
+
 		for (int32 Idx = StartIndex; Idx < EndIndex; ++Idx)
 		{
 			auto EachSpawnerRealCount = FMath::FloorToInt(EachSpawnerCounts[Idx] * SampleScale);

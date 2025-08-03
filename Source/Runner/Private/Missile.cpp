@@ -76,6 +76,7 @@ void AMissile::Tick(float DeltaTime)
 		StaticMeshComp->SetVisibility(false);
 		TrailComp->Deactivate();
 		SphereComp->SetHiddenInGame(false);
+		SphereComp->SetCollisionProfileName("MudSphere");
 
 		APlayerCameraManager::PlayWorldCameraShake(GetWorld(), CameraShakeClass, TargetPos, CameraShakeInnerRadius, CameraShakeOuterRadius, CameraShakeFalloff);
 	}

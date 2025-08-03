@@ -159,6 +159,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Skate Controller")
 	float PerfectThrustSpeedTime = 0.5f;
 
+	UPROPERTY(EditAnywhere, Category = "Skate Controller")
+	float GameStartVelocity = 2500.0f;
+
 	// 是否使用曲率来判断起飞
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	bool bUseCurvatureForTakeoff = true;
@@ -173,6 +176,8 @@ public:
 	// 有多种来源，因此使用 int8 来表示状态
 	int8 Thrusting = false;
 	int8 SlowDown = false;
+
+	bool bGameStart = false;
 
 protected:
 	void BeginPlay() override;
@@ -210,6 +215,9 @@ public:
 
 	void StartFalling(int32 Iterations, float remainingTime, float timeTick, const FVector& Delta, const FVector& subLoc) override;
 	bool CheckFall(const FFindFloorResult& OldFloor, const FHitResult& Hit, const FVector& Delta, const FVector& OldLocation, float remainingTime, float timeTick, int32 Iterations, bool bMustJump) override;
+
+	FVector ConsumeInputVector() override { return bGameStart ? GetOwner()->GetActorForwardVector() : FVector::ZeroVector; };
+	void SetGameStart() { bGameStart = true; Velocity = GetOwner()->GetActorForwardVector() * GameStartVelocity; }
 
 	// 用于 coin spawner 那边调用
 	static double CalcStartZVelocity(double Roll, double GroundSpeedSize, double TakeoffSpeedScale, double MaxStartZVelocityInAir);
