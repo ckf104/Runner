@@ -10,7 +10,7 @@
 #include "GameUIUserWidget.generated.h"
 
 /**
- * 
+ *
  */
 UCLASS()
 class RUNNER_API UGameUIUserWidget : public UUserWidget
@@ -23,8 +23,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
 	float LifeChangeSpeed = 1.0f;
 
+	UPROPERTY(EditAnywhere, Category = "Score")
+	int32 CoinScore = 25;
+
+	UPROPERTY(EditAnywhere, Category = "Score")
+	int32 ScorePerSecond = 100;
+
+	float ScoreTime = 0.0f;
+
 	static FVector3f GetParamsPercentage(float Percentage);
 
+	void SetGameStart(bool bStart) { bGameStart = bStart; }
+	void AddOneCoin() { AddScore(CoinScore); }
 	void AddScore(uint32 ScoreToAdd);
 	uint32 GetTotalScore() const { return TotalScore; }
 	void UpdateLife(float Percentage);
@@ -33,7 +43,7 @@ public:
 	void UpdateLifeImmediately(float Percentage);
 	void UpdateGasImmediately(float Percentage);
 
-private:	
+private:
 	UPROPERTY(Transient, Meta = (BindWidget))
 	TObjectPtr<class UImage> Life0;
 
@@ -58,12 +68,13 @@ private:
 	uint32 PendingScore = 0;
 	uint32 TotalScore = 0;
 
-
 	float LifeShowPercentage = 0.0f;
 	float LifeRealPercentage = 0.0f;
-	
+
 	float GasShowPercentage = 0.0f;
 	float GasRealPercentage = 0.0f;
+
+	bool bGameStart = false;
 
 	class UMaterialInstanceDynamic* Life0Material = nullptr;
 	class UMaterialInstanceDynamic* Life1Material = nullptr;

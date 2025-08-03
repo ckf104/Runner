@@ -100,6 +100,16 @@ void UGameUIUserWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
+	if (bGameStart)
+	{
+		ScoreTime += InDeltaTime;
+	}
+	if (ScoreTime >= 1.0f)
+	{
+		ScoreTime -= 1.0f;
+		AddScore(ScorePerSecond);
+	}
+
 	if (PendingScore > 0)
 	{
 		TotalScore += PendingScore;

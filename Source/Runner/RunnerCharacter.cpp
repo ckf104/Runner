@@ -197,6 +197,7 @@ void ARunnerCharacter::Tick(float Delta)
 
 	CheckEvilChase(Delta);
 	UpdateFlicker(Delta);
+
 }
 
 void ARunnerCharacter::CheckEvilChase(float Delta)
@@ -479,6 +480,7 @@ void ARunnerCharacter::DealBarrierOverlap(UPrimitiveComponent* OverlappedCompone
 	if (OtherComp->ComponentHasTag("GoldCoin"))
 	{
 		// UE_LOG(LogRunnerCharacter, Warning, TEXT("ARunnerCharacter::DealBarrierOverlap: Get Coin %d"), OtherBodyIndex);
+		GameUIWidget->AddOneCoin();
 	}
 	else if (OtherComp->ComponentHasTag("Mud"))
 	{

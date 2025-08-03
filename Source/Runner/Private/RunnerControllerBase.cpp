@@ -5,6 +5,7 @@
 #include "Engine/TimerHandle.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
+#include "GameUIUserWidget.h"
 #include "Math/MathFwd.h"
 #include "Runner/RunnerCharacter.h"
 #include "RunnerMovementComponent.h"
@@ -26,9 +27,11 @@ FRotator ARunnerControllerBase::GetControlRotation() const
 
 void ARunnerControllerBase::WhenCountDownOver()
 {
-  Cast<ARunnerCharacter>(GetPawn())->StartThrust(EThrustSource::FreeThrust, StartThrustTime);
-  Cast<URunnerMovementComponent>(Cast<ARunnerCharacter>(GetPawn())->GetCharacterMovement())->SetGameStart();
-  
+  auto* Runner = Cast<ARunnerCharacter>(GetPawn());
+  Runner->StartThrust(EThrustSource::FreeThrust, StartThrustTime);
+  Runner->GameUIWidget->SetGameStart(true);
+  Cast<URunnerMovementComponent>(Runner->GetCharacterMovement())->SetGameStart();
+
   TActorIterator<AWorldGenerator> It(GetWorld());
   if (It)
   {
