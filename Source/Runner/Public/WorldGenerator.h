@@ -22,6 +22,7 @@ struct RandomPoint
 UENUM()
 enum class EDrawType : uint8
 {
+	None,
 	Gaussian,
 	Cubic,
 };
@@ -46,6 +47,11 @@ public:
 
 	// Sets default values for this actor's properties
 	AWorldGenerator();
+
+	double PerlinCosTheta;
+	double PerlinSinTheta;
+	FInt32Point PerlinOffset;
+	int32 BarrierRandom;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	TObjectPtr<class UMaterialInterface> TileMaterial;
@@ -191,6 +197,9 @@ public:
 
 	void PMCClear(int32 PMCIndex);
 
+	// 对高度图进行后处理微调
+	void PostProcessHeightMap(FInt32Point Tile, TArray<FVector>& VerticesBuffer);
+
 	// FVector TransformUVToWorldPos(RandomPoint& Point, FInt32Point Tile) const;
 
 	void OnConstruction(const FTransform& Transform) override;
@@ -217,10 +226,22 @@ private:
 	bool bDebugMode = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
+	bool bEnablePostProcessHeightMap = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	bool bDrawSamplingPoint = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	bool bCheckPoissonSampling = false;
+
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (AllowPrivateAccess = "true"))
+	int32 DebugBarrierRandom = 0;
+
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (AllowPrivateAccess = "true"))
+	int32 DebugTheta = 0;
+
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (AllowPrivateAccess = "true"))
+	FInt32Point DebugOffset = FInt32Point(0, 0);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	EDrawType DrawType = EDrawType::Gaussian;
@@ -239,11 +260,12 @@ public:
 	TObjectPtr<class UMaterialParameterCollection> EvilChaseMaterialCollection;
 
 	UPROPERTY(EditAnywhere, Category = "Evil Chase")
-	float EvilChaseSpeed = 1800.0f;
+	TArray<float> EvilChaseSpeed;
 
 	double GetEvilPos() { return EvilPos; }
 	void SetGameStart() { bGameStart = true; }
 
+	// 导弹逻辑
 public:
 	UPROPERTY(EditAnywhere, Category = "Missile")
 	TObjectPtr<class UMissileComponent> MissileComponent;
@@ -251,10 +273,24 @@ public:
 	// 用于导弹生成
 	FVector2D ClampToWorld(FVector2D Pos, double ObjectRadius) const;
 
+	// 难度分级
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
+	TArray<float> DifficultyThresholds; // 该难度结束的时间
+
+	int32 CurrentDifficulty = 0; // 当前难度
+	float WorldTime = 0.0f;			 // 世界时间
+
+	FInt32Point GetPlayerStartTile() const
+	{
+		return PlayerStartTile;
+	}
+
 private:
 	void UpdateEvilPos(float DeltaTime);
 
 	bool bGameStart = false;
+	FInt32Point PlayerStartTile;
 
 	UPROPERTY(EditAnywhere, Category = "Evil Chase", meta = (AllowPrivateAccess = "true"))
 	double EvilPos;
@@ -275,12 +311,12 @@ private:
 	// TaskDataBuffers 用于存储每个线程的任务数据, 64 Bytes 对齐
 	TaskBuffer TaskDataBuffers[MaxThreadCount];
 	// 在异步线程中执行
-	void GenerateOneTileAsync(int32 BufferIndex, FInt32Point Tile, FVector2D PositionOffset);
-	void GenerateRandomPointsAsync(int32 BufferIndex, FInt32Point Tile, TArray<RandomPoint>& RandomPoints);
+	void GenerateOneTileAsync(int32 BufferIndex, int32 Difficulty, FInt32Point Tile, FVector2D PositionOffset);
+	void GenerateRandomPointsAsync(int32 BufferIndex, int32 Difficulty, FInt32Point Tile, TArray<RandomPoint>& RandomPoints);
 
-	void GenerateUniformRandomPointsAsync(int32 BufferIndex, TArray<RandomPoint>& RandomPoints);
+	void GenerateUniformRandomPointsAsync(int32 BufferIndex, int32 Difficulty, TArray<RandomPoint>& RandomPoints);
 	// 使用泊松采样生成随机点
-	void GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray<RandomPoint>& RandomPoints);
+	void GeneratePoissonRandomPointsAsync(int32 BufferIndex, int32 Difficulty, TArray<RandomPoint>& RandomPoints);
 
 	// 各种数学函数测试
 	using DistanceFuncType = bool (*)(FVector2D, FVector2D, double);

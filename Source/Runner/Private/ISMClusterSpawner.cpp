@@ -63,6 +63,10 @@ void AISMClusterSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32
 
 	for (auto& Point : Positions)
 	{
+		if (!CanSpawnThisBarrier(Tile, Point.UVPos, WorldGenerator))
+		{
+			continue; // 跳过不允许生成障碍物的区域
+		}
 		auto MeshCountInCluster = FMath::RandRange(MinMeshCountInCluster, MaxMeshCountInCluster);
 
 		auto TilePos = FVector2D(Point.UVPos.X * XSize, Point.UVPos.Y * YSize);

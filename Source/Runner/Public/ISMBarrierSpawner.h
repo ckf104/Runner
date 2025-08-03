@@ -22,7 +22,6 @@ public:
 
 	void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
 	void RemoveTile(FInt32Point Tile) override;
-	int32 GetBarrierCountAnyThread(double RandomValue) const override;
 
 	const TArray<int32>* GetInstanceInTile(FInt32Point Tile) const { return TileInstanceIndices.Find(Tile); };
 

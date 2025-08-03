@@ -15,6 +15,11 @@ void ABPBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 
 	for (auto& Point : Positions)
 	{
+		if (!CanSpawnThisBarrier(Tile, Point.UVPos, WorldGenerator))
+		{
+			continue; // 跳过不允许生成障碍物的区域
+		}
+
 		FTransform Transform;
 		GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
 		AActor* CachedActor = nullptr;

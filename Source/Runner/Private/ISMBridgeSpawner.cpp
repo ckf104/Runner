@@ -1,20 +1,19 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "ISMBridgeSpawner.h"
 #include "Math/MathFwd.h"
 #include "Templates/UnrealTemplate.h"
 
 AISMBridgeSpawner::AISMBridgeSpawner()
 {
-  AlignMode = EAlignMode::AlignNormal; // 默认对齐模式为 AlignNormal
+	AlignMode = EAlignMode::AlignNormal; // 默认对齐模式为 AlignNormal
 }
 
 FRotator AISMBridgeSpawner::GetRotationFromSeed(FRotator Seed) const
 {
-  FRotator Rotation = FRotator::ZeroRotator;
-  Rotation.Pitch = FMath::Lerp(MinBridgeAngle, MaxBridgeAngle, Seed.Pitch);
-  return Rotation;
+	FRotator Rotation = FRotator::ZeroRotator;
+	Rotation.Pitch = FMath::Lerp(MinBridgeAngle, MaxBridgeAngle, Seed.Pitch);
+	return Rotation;
 }
 
 void AISMBridgeSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator)
@@ -29,11 +28,16 @@ void AISMBridgeSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 	int32 Idx = 0;
 	for (auto& Point : Positions)
 	{
-    FTransform Transform;
-    GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
-    auto Rotator = Transform.GetRotation().Rotator();
-    Rotator.Pitch = FMath::Min(Rotator.Pitch, MaxBridgeAngle);
-    Transform.SetRotation(Rotator.Quaternion());
+		if (!CanSpawnThisBarrier(Tile, Point.UVPos, WorldGenerator))
+		{
+			continue; // 跳过不允许生成障碍物的区域
+		}
+
+		FTransform Transform;
+		GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
+		auto Rotator = Transform.GetRotation().Rotator();
+		Rotator.Pitch = FMath::Min(Rotator.Pitch, MaxBridgeAngle);
+		Transform.SetRotation(Rotator.Quaternion());
 
 		if (ReplaceInstanceIndices.Num() > 0)
 		{
@@ -60,6 +64,6 @@ double AISMBridgeSpawner::GetCustomSlopeAngle(int32 InstanceIndex) const
 	FTransform Transform;
 	ISMComponent->GetInstanceTransform(InstanceIndex, Transform);
 
-  auto PitchAngle = Transform.GetRotation().Rotator().Pitch;
-  return -PitchAngle;
+	auto PitchAngle = Transform.GetRotation().Rotator().Pitch;
+	return -PitchAngle;
 }

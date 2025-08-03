@@ -15,6 +15,11 @@ void ALaserSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point
 
 	for (auto& Point : Positions)
 	{
+		if (!CanSpawnThisBarrier(Tile, Point.UVPos, WorldGenerator))
+		{
+			continue; // 跳过不允许生成障碍物的区域
+		}
+
 		FTransform Transform;
 		GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
 
@@ -22,11 +27,11 @@ void ALaserSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point
 		{
 			FVector Location = Transform.GetLocation();
 			Location.Y += i * YDist;
-      if (Location.Y > YSize)
-      {
-        Location.Y = Location.Y - YSize;
-      }
-      ensure(Location.Y >= 0 && Location.Y <= YSize); // 确保位置在有效范围内
+			if (Location.Y > YSize)
+			{
+				Location.Y = Location.Y - YSize;
+			}
+			ensure(Location.Y >= 0 && Location.Y <= YSize); // 确保位置在有效范围内
 			Transform.SetLocation(Location);
 
 			AActor* CachedActor = nullptr;

@@ -27,6 +27,11 @@ void ADecalSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point
 
   for (const RandomPoint& Position : Positions)
   {
+		if (!CanSpawnThisBarrier(Tile, Position.UVPos, WorldGenerator))
+		{
+			continue; // 跳过不允许生成障碍物的区域
+		}
+
     FTransform Transform;
     GetTransformFromSeed(Transform, Position, Tile, WorldGenerator);
 

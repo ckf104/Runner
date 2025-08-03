@@ -2,9 +2,11 @@
 
 #include "GameUIUserWidget.h"
 #include "Components/TextBlock.h"
+#include "EngineUtils.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Math/MathFwd.h"
+#include "WorldGenerator.h"
 
 FVector3f UGameUIUserWidget::GetParamsPercentage(float Percentage)
 {
@@ -30,11 +32,6 @@ FVector3f UGameUIUserWidget::GetParamsPercentage(float Percentage)
 		LifeP2 = FMath::Clamp((Percentage - T2) * 3.0f, 0.0f, 1.0f);
 	}
 	return FVector3f(LifeP0, LifeP1, LifeP2);
-}
-
-void UGameUIUserWidget::AddScore(uint32 ScoreToAdd)
-{
-	PendingScore += ScoreToAdd;
 }
 
 void UGameUIUserWidget::UpdateLife(float Percentage)
@@ -100,6 +97,11 @@ void UGameUIUserWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
+	if  (GetWorld()->IsPaused())
+	{
+		return; // 如果游戏暂停，则不更新 UI
+	}
+
 	if (bGameStart)
 	{
 		ScoreTime += InDeltaTime;
@@ -107,7 +109,9 @@ void UGameUIUserWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 	if (ScoreTime >= 1.0f)
 	{
 		ScoreTime -= 1.0f;
-		AddScore(ScorePerSecond);
+		auto Difficulty = WorldGenerator->CurrentDifficulty;
+		Difficulty = FMath::Clamp(Difficulty, 0, ScorePerSecond.Num() - 1);
+		AddScore(ScorePerSecond[Difficulty]);
 	}
 
 	if (PendingScore > 0)
@@ -115,6 +119,12 @@ void UGameUIUserWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 		TotalScore += PendingScore;
 		Score->SetText(FText::AsNumber(TotalScore));
 		PendingScore = 0;
+	}
+	if (PendingLife != 0.0f)
+	{
+		auto NewLife = FMath::Clamp(LifeRealPercentage + PendingLife, 0.0f, 1.0f);
+		PendingLife = 0.0f;
+		UpdateLife(NewLife);
 	}
 	if (LifeRealPercentage != LifeShowPercentage)
 	{
@@ -180,4 +190,17 @@ void UGameUIUserWidget::NativeConstruct()
 		Gas2Material = UMaterialInstanceDynamic::Create(Mat, this);
 		Gas2->SetBrushFromMaterial(Gas2Material);
 	}
+
+	TActorIterator<AWorldGenerator> It(GetWorld());
+	if (It)
+	{
+		WorldGenerator = *It;
+	}
+
+	ScorePerSecond.SetNum(5);
+	ScorePerSecond[0] = 100;
+	ScorePerSecond[1] = 125;
+	ScorePerSecond[2] = 150;
+	ScorePerSecond[3] = 175;
+	ScorePerSecond[4] = 200;
 }

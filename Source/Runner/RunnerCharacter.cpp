@@ -197,7 +197,6 @@ void ARunnerCharacter::Tick(float Delta)
 
 	CheckEvilChase(Delta);
 	UpdateFlicker(Delta);
-
 }
 
 void ARunnerCharacter::CheckEvilChase(float Delta)
@@ -424,7 +423,8 @@ void ARunnerCharacter::TakeHitImpact(bool bOnlyUI)
 			// Handle character death
 			// UE_LOG(LogRunnerCharacter, Warning, TEXT("Character has died!"));
 		}
-		GameUIWidget->UpdateLife(Health / MaxHealth);
+		UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::TakeHitImpact: Health %f"), Health);
+		GameUIWidget->AddLife(-HitDamage / MaxHealth);
 	}
 	ShowDamageUI(bOnlyUI);
 	// UGameplayStatics::SetGlobalTimeDilation(this, HitSlomo);
@@ -449,6 +449,7 @@ void ARunnerCharacter::TakeHitImpact(bool bOnlyUI)
 	if (Health <= 0.0f && !bInfiniteHealth)
 	{
 		auto* RunnerPC = Cast<ARunnerControllerBase>(GetController());
+		UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter:: Average Speed %f"), GetActorLocation().X / WorldGenerator->WorldTime);
 		RunnerPC->GameOver(GameUIWidget->GetTotalScore());
 	}
 }
@@ -480,7 +481,9 @@ void ARunnerCharacter::DealBarrierOverlap(UPrimitiveComponent* OverlappedCompone
 	if (OtherComp->ComponentHasTag("GoldCoin"))
 	{
 		// UE_LOG(LogRunnerCharacter, Warning, TEXT("ARunnerCharacter::DealBarrierOverlap: Get Coin %d"), OtherBodyIndex);
-		GameUIWidget->AddOneCoin();
+		Health += CoinHealHealth;
+		Health = FMath::Min(Health, MaxHealth);
+		GameUIWidget->AddOneCoin(CoinHealHealth / MaxHealth);
 	}
 	else if (OtherComp->ComponentHasTag("Mud"))
 	{

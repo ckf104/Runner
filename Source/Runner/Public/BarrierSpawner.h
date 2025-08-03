@@ -48,10 +48,10 @@ public:
 	float BarrierRadius = 10.0f; // 障碍物半径
 
 	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
-	int32 MinBarrierCount = 20; // 最小障碍物数量
+	TArray<int32> MinBarrierCount; // 最小障碍物数量
 
 	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
-	int32 MaxBarrierCount = 40; // 最大障碍物数量
+	TArray<int32> MaxBarrierCount; // 最大障碍物数量
 
 	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
 	bool bDeferSpawn = false; // 是否延迟 spawn，默认不延迟
@@ -63,10 +63,35 @@ protected:
 	virtual FRotator GetRotationFromSeed(FRotator Seed) const;
 
 public:
+	bool CanSpawnThisBarrier(FInt32Point Tile, FVector2D UVPos, AWorldGenerator* WorldGenerator) const
+	{
+		auto PlayerStartTile = WorldGenerator->GetPlayerStartTile();
+		auto bProximity = FMath::Abs(UVPos.X - 0.5) <= 0.2 && FMath::Abs(UVPos.Y - 0.5) <= 0.2;
+		if (Tile == PlayerStartTile && bProximity)
+		{
+			// 玩家起始位置周围 不允许生成障碍物
+			return false;
+		}
+		return true;
+	}
+
 	virtual void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) {}
 	virtual bool DeferSpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) { return true; }
 	virtual void RemoveTile(FInt32Point Tile) {}
-	virtual int32 GetBarrierCountAnyThread(double RandomValue) const { return FMath::RoundToInt(float(FMath::Lerp(MinBarrierCount, MaxBarrierCount, RandomValue))); }
+	virtual int32 GetBarrierCountAnyThread(double RandomValue, int32 Difficulty) const
+	{
+		ensure(MinBarrierCount.Num() > 0 && MaxBarrierCount.Num() > 0);
+		auto MinCount = MinBarrierCount.IsValidIndex(Difficulty) ? MinBarrierCount[Difficulty] : MinBarrierCount[MinBarrierCount.Num() - 1];
+		auto MaxCount = MaxBarrierCount.IsValidIndex(Difficulty) ? MaxBarrierCount[Difficulty] : MaxBarrierCount[MaxBarrierCount.Num() - 1];
+
+		if (MaxCount <= 0)
+		{
+			return 0;
+		}
+		auto BarCount = FMath::RoundToInt(float(FMath::Lerp(MinCount, MaxCount, RandomValue)));
+		// 当 MaxCount 大于 0 时，确保至少生成一个障碍物
+		return FMath::Max(BarCount, 1);
+	}
 
 	virtual bool BarrierHasCustomSlope() const { return false; }
 	virtual double GetCustomSlopeAngle(int32 InstanceIndex) const { return 0.0; }

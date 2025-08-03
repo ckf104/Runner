@@ -16,12 +16,6 @@ AISMBarrierSpawner::AISMBarrierSpawner()
 	ISMComponent->bReceivesDecals = false; // 不接收 decal
 }
 
-int32 AISMBarrierSpawner::GetBarrierCountAnyThread(double RandomValue) const
-{
-	// 根据随机值返回障碍物数量
-	return FMath::RoundToInt(float(FMath::Lerp(MinBarrierCount, MaxBarrierCount, RandomValue)));
-}
-
 void AISMBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator)
 {
 	if (!ISMComponent || !WorldGenerator)
@@ -34,8 +28,12 @@ void AISMBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32
 	int32 Idx = 0;
 	for (auto& Point : Positions)
 	{
-    FTransform Transform;
-    GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
+		if (!CanSpawnThisBarrier(Tile, Point.UVPos, WorldGenerator))
+		{
+			continue; // 跳过不允许生成障碍物的区域
+		}
+		FTransform Transform;
+		GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
 
 		if (ReplaceInstanceIndices.Num() > 0)
 		{

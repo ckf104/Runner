@@ -24,18 +24,23 @@ public:
 	float LifeChangeSpeed = 1.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Score")
-	int32 CoinScore = 25;
+	int32 CoinScore = 50;
 
 	UPROPERTY(EditAnywhere, Category = "Score")
-	int32 ScorePerSecond = 100;
+	TArray<int32> ScorePerSecond;
 
 	float ScoreTime = 0.0f;
 
 	static FVector3f GetParamsPercentage(float Percentage);
 
 	void SetGameStart(bool bStart) { bGameStart = bStart; }
-	void AddOneCoin() { AddScore(CoinScore); }
-	void AddScore(uint32 ScoreToAdd);
+	void AddOneCoin(float Percentage)
+	{
+		AddScore(CoinScore);
+		AddLife(Percentage);
+	}
+	void AddLife(float Percentage) { PendingLife += Percentage; }
+	void AddScore(uint32 ScoreToAdd) { PendingScore += ScoreToAdd; }
 	uint32 GetTotalScore() const { return TotalScore; }
 	void UpdateLife(float Percentage);
 	void UpdateGas(float Percentage);
@@ -68,6 +73,8 @@ private:
 	uint32 PendingScore = 0;
 	uint32 TotalScore = 0;
 
+	float PendingLife = 0.0f;
+
 	float LifeShowPercentage = 0.0f;
 	float LifeRealPercentage = 0.0f;
 
@@ -86,4 +93,6 @@ private:
 protected:
 	void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	void NativeConstruct() override;
+
+	class AWorldGenerator* WorldGenerator = nullptr;
 };

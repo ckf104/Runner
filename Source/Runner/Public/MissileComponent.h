@@ -21,7 +21,10 @@ public:
 	TSubclassOf<class AMissile> MissileClass;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Missile")
-	float ExpectedDistance = 4000.0f;
+	TArray<float> ExpectedDistance;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Missile")
+	float TickInterval;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Missile")
 	float MissileReachTime = 1.5f;
@@ -40,9 +43,6 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Missile")
 	float MissileMaxStartOffset = 5000.0f; // 导弹起始位置的最大偏移量
-
-	UPROPERTY(EditAnywhere, Category = "Missile")
-	float TickInterval = 0.15f; // 每隔多少秒执行一次
 
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bDebug = false;

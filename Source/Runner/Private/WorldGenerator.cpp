@@ -10,8 +10,10 @@
 #include "Containers/ArrayView.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/PlayerStart.h"
 #include "HAL/Platform.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMaterialLibrary.h"
@@ -25,6 +27,7 @@
 #include "Misc/AssertionMacros.h"
 #include "MissileComponent.h"
 #include "ProceduralMeshComponent.h"
+#include "Runner/RunnerGameMode.h"
 #include "Templates/Tuple.h"
 #include "UObject/ObjectPtr.h"
 #include <algorithm>
@@ -109,6 +112,33 @@ void AWorldGenerator::BeginPlay()
 	// ensure(MatTextureSize == TextureSize.X);
 	// ensure(MaxMatTextureCoords == MaxTextureCoords);
 
+	TActorIterator<APlayerStart> It(GetWorld());
+	if (It)
+	{
+		auto PlayerStart = *It;
+		PlayerStartTile = GetTileFromHorizontalPos(FVector2D(PlayerStart->GetActorLocation()));
+	}
+
+	// 使用全局的种子来控制地形和障碍物的随机生成
+	int32 Theta;
+	if (bDebugMode)
+	{
+		Theta = DebugTheta;
+		PerlinOffset = DebugOffset;
+		BarrierRandom = DebugBarrierRandom;
+	}
+	else
+	{
+		Theta = FMath::RandRange(0, 359);
+		PerlinOffset = FInt32Point(FMath::RandRange(-10000, 10000), FMath::RandRange(-10000, 10000));
+		BarrierRandom = FMath::Rand32();
+	}
+	PerlinCosTheta = FMath::Cos(FMath::DegreesToRadians(Theta));
+	PerlinSinTheta = FMath::Sin(FMath::DegreesToRadians(Theta));
+
+	UE_LOG(LogWorldGenerator, Log, TEXT("RandomSeed, Theta: %d, Offset: %s, BarrierRandom: %d"),
+			Theta, *PerlinOffset.ToString(), BarrierRandom);
+
 	Super::BeginPlay();
 }
 
@@ -154,31 +184,39 @@ void AWorldGenerator::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void AWorldGenerator::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	if (bGameStart)
+	{
+		WorldTime += DeltaTime; // Update world time
+		if (WorldTime >= DifficultyThresholds[CurrentDifficulty] && CurrentDifficulty < DifficultyThresholds.Num() - 1)
+		{
+			CurrentDifficulty++;
+		}
+		UpdateEvilPos(DeltaTime);
+	}
 	GenerateNewTiles();
 
-	UpdateEvilPos(DeltaTime);
-
-	if (bDebugMode)
-	{
-		DebugPrint();
-	}
+	// if (bDebugMode)
+	// {
+	// 	DebugPrint();
+	// }
 }
 
 void AWorldGenerator::UpdateEvilPos(float DeltaTime)
 {
-	if (bGameStart)
+	if (!bDebugMode)
 	{
 		auto PlayerTile = GetPlayerTile();
 		auto TileSizeX = CellSize * XCellNumber;
 
 		auto MinPos = double(TileSizeX) * (PlayerTile.X - 1);
-		auto NewEvilPos = EvilPos + (EvilChaseSpeed * DeltaTime);
+		auto SpeedIndex = FMath::Clamp(CurrentDifficulty, 0, EvilChaseSpeed.Num() - 1);
+		auto NewEvilPos = EvilPos + (EvilChaseSpeed[SpeedIndex] * DeltaTime);
+		// UE_LOG(LogWorldGenerator, Log, TEXT("Speed %f"), EvilChaseSpeed[SpeedIndex]);
 		EvilPos = FMath::Max(MinPos, NewEvilPos);
 
 		UKismetMaterialLibrary::SetScalarParameterValue(this, EvilChaseMaterialCollection, "EvilPos", float(EvilPos / TileSizeX));
 	}
 }
-
 void AWorldGenerator::DebugPrint() const
 {
 	auto* Character = UGameplayStatics::GetPlayerCharacter(this, 0);
@@ -446,8 +484,13 @@ double AWorldGenerator::GetHeightFromPerlinAnyThread(FVector2D Pos, FInt32Point 
 	}
 	double PerlinXOffset = 1 / FMath::Sqrt(2.0);
 	double PerlinYOffset = 1 / FMath::Sqrt(3.0);
+
+	auto RotatedPos = FVector2D(
+			Pos.X * PerlinCosTheta - Pos.Y * PerlinSinTheta,
+			Pos.X * PerlinSinTheta + Pos.Y * PerlinCosTheta);
+
 	auto Offset = FVector2D(FMath::Frac(CellPos.X * PerlinXOffset), FMath::Frac(CellPos.Y * PerlinYOffset));
-	auto NewPos = FVector2D(Pos.X + Offset.X, Pos.Y + Offset.Y);
+	auto NewPos = FVector2D(RotatedPos.X + Offset.X, RotatedPos.Y + Offset.Y);
 	double Height = 0.0;
 	for (int32 i = 0; i < PerlinFreq.Num(); ++i)
 	{
@@ -503,6 +546,51 @@ FVector AWorldGenerator::GetNormalFromUVandTile(FVector2D UV, FInt32Point Tile) 
 	return GetNormalFromHorizontalPos(Pos);
 }
 
+void AWorldGenerator::PostProcessHeightMap(FInt32Point Tile, TArray<FVector>& VerticesBuffer)
+{
+	if (Tile != PlayerStartTile || !bEnablePostProcessHeightMap)
+	{
+		return;
+	}
+	// 我们假设玩家位于 tile 中心，然后设置该中心的高度为 0，渐渐向四周扩散，高度图逐渐恢复到原来的高度
+	auto CenterX = XCellNumber / 2;
+	auto CenterY = YCellNumber / 2;
+
+	auto MaxDist = FMath::Min(CenterX, CenterY);
+	auto DeltaAlpha = 1.0 / MaxDist;
+	for (auto Dist = 0; Dist < MaxDist; ++Dist)
+	{
+		auto Alpha = Dist * DeltaAlpha;
+		auto MinX = CenterX - Dist;
+		auto MaxX = CenterX + Dist;
+		auto MinY = CenterY - Dist;
+		auto MaxY = CenterY + Dist;
+		for (int32 X = MinX + 1; X < MaxX; ++X)
+		{
+			auto Pos1 = MinY * (XCellNumber + 1) + X;
+			auto Pos2 = MaxY * (XCellNumber + 1) + X;
+			VerticesBuffer[Pos1].Z = VerticesBuffer[Pos1].Z * Alpha;
+			VerticesBuffer[Pos2].Z = VerticesBuffer[Pos2].Z * Alpha;
+		}
+		for (int32 Y = MinY + 1; Y < MaxY; ++Y)
+		{
+			auto Pos1 = Y * (XCellNumber + 1) + MinX;
+			auto Pos2 = Y * (XCellNumber + 1) + MaxX;
+			VerticesBuffer[Pos1].Z = VerticesBuffer[Pos1].Z * Alpha;
+			VerticesBuffer[Pos2].Z = VerticesBuffer[Pos2].Z * Alpha;
+		}
+		// 单独处理四个角，避免它们被 alpha 乘多次，中心高度为 0，被乘多次也无所谓
+		auto PosTopLeft = MinY * (XCellNumber + 1) + MinX;
+		auto PosTopRight = MinY * (XCellNumber + 1) + MaxX;
+		auto PosBottomLeft = MaxY * (XCellNumber + 1) + MinX;
+		auto PosBottomRight = MaxY * (XCellNumber + 1) + MaxX;
+		VerticesBuffer[PosTopLeft].Z = VerticesBuffer[PosTopLeft].Z * Alpha;
+		VerticesBuffer[PosTopRight].Z = VerticesBuffer[PosTopRight].Z * Alpha;
+		VerticesBuffer[PosBottomLeft].Z = VerticesBuffer[PosBottomLeft].Z * Alpha;
+		VerticesBuffer[PosBottomRight].Z = VerticesBuffer[PosBottomRight].Z * Alpha;
+	}
+}
+
 void AWorldGenerator::CreateMeshFromTileData()
 {
 	for (int32 i = 0; i < MaxThreadCount; ++i)
@@ -518,6 +606,8 @@ void AWorldGenerator::CreateMeshFromTileData()
 			auto& BarriersCount = TaskData.BarriersCount;
 
 			auto Tile = TilesInBuilding[i];
+			PostProcessHeightMap(Tile, VerticesBuffer);
+
 			auto TestPos = FVector2D(Tile.X * CellSize * XCellNumber + (CellSize * XCellNumber / 2.0),
 					Tile.Y * CellSize * YCellNumber + (CellSize * YCellNumber / 2.0));
 			UProceduralMeshComponent* PMC = nullptr;
@@ -644,6 +734,12 @@ void AWorldGenerator::CreateMeshFromTileData()
 				// 	// DrawDebugBox(GetWorld(), WorldPos, FVector(100.0f), FColor::Red, true, 5.0f);
 				// }
 			}
+			if (!bGameStart && Tile == PlayerStartTile)
+			{
+				auto* GameMode = Cast<ARunnerGameMode>(UGameplayStatics::GetGameMode(this));
+				// TODO
+			}
+
 			// 释放 slot
 			BufferStateGameThreadOnly[i] = EBufferState::Idle; // Reset the buffer state
 			// if (AsyncTaskRef[i])
@@ -725,9 +821,10 @@ bool AWorldGenerator::GenerateOneTile(FInt32Point Tile)
 
 	auto PosOffset = FVector2D(PMC->GetComponentLocation());
 
-	auto Lambda = [this, PosOffset, Tile, BufferIndex]() {
+	// 因为 Difficulty 在 game 线程中不断被访问和修改，因此这里我们将当前的 Difficulty 直接传递给 worker
+	auto Lambda = [this, PosOffset, Tile, BufferIndex, Difficulty = this->CurrentDifficulty]() {
 		// Generate the tile mesh data
-		GenerateOneTileAsync(BufferIndex, Tile, PosOffset);
+		GenerateOneTileAsync(BufferIndex, Difficulty, Tile, PosOffset);
 	};
 	AsyncTaskRef[BufferIndex] = TGraphTask<FPCGAsyncGraphTask>::CreateTask().ConstructAndDispatchWhenReady(ENamedThreads::AnyThread, MoveTemp(Lambda));
 	TilesInBuilding[BufferIndex] = Tile; // Store the tile for this buffer
@@ -811,7 +908,7 @@ void AWorldGenerator::GenerateNewTiles()
 		auto bSuccess = BarrierSpawners[ReplacableIndex]->DeferSpawnBarriers(It.Value(), Tile, this);
 		if (bSuccess)
 		{
-			UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s spawned barriers from CachedSpawnData!"), ReplacableIndex, *Tile.ToString());
+			// UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s spawned barriers from CachedSpawnData!"), ReplacableIndex, *Tile.ToString());
 			It.RemoveCurrent();
 		}
 	}
@@ -957,7 +1054,7 @@ FVector2D AWorldGenerator::ClampToWorld(FVector2D Pos, double Radius) const
 // 	Point.Transform.SetTranslation(WorldPos);
 // }
 
-void AWorldGenerator::GenerateOneTileAsync(int32 BufferIndex, FInt32Point Tile, FVector2D PositionOffset)
+void AWorldGenerator::GenerateOneTileAsync(int32 BufferIndex, int32 Difficulty, FInt32Point Tile, FVector2D PositionOffset)
 {
 	// 在这里执行异步生成逻辑
 	auto& TaskData = TaskDataBuffers[BufferIndex];
@@ -981,7 +1078,7 @@ void AWorldGenerator::GenerateOneTileAsync(int32 BufferIndex, FInt32Point Tile, 
 	}
 
 	UKismetProceduralMeshLibrary::CalculateTangentsForMesh(VerticesBuffer, TrianglesBuffer, UV0Buffer, NormalsBuffer, TangentsBuffer);
-	GenerateRandomPointsAsync(BufferIndex, Tile, TaskDataBuffers[BufferIndex].RandomPoints);
+	GenerateRandomPointsAsync(BufferIndex, Difficulty, Tile, TaskDataBuffers[BufferIndex].RandomPoints);
 
 	// Game 线程的回调
 	AsyncTask(ENamedThreads::GameThread, TUniqueFunction<void()>([this, BufferIndex]() {
@@ -989,17 +1086,27 @@ void AWorldGenerator::GenerateOneTileAsync(int32 BufferIndex, FInt32Point Tile, 
 	}));
 }
 
-void AWorldGenerator::GenerateRandomPointsAsync(int32 BufferIndex, FInt32Point Tile, TArray<RandomPoint>& RandomPoints)
+// See https://stackoverflow.com/questions/664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key
+static inline uint32 int32HashFunc(uint32 x)
 {
-	int64 Seed = ((int64)Tile.X << 32) | (int64)Tile.Y;
+	x = ((x >> 16) ^ x) * 0x45d9f3bu;
+	x = ((x >> 16) ^ x) * 0x45d9f3bu;
+	x = (x >> 16) ^ x;
+	return x;
+}
+
+void AWorldGenerator::GenerateRandomPointsAsync(int32 BufferIndex, int32 Difficulty, FInt32Point Tile, TArray<RandomPoint>& RandomPoints)
+{
+	auto X = int32HashFunc(Tile.X);
+	int64 Seed = (uint64(X) << 32) | uint64(uint32(BarrierRandom));
 	TaskDataBuffers[BufferIndex].RandomEngine.seed(Seed);
 
 	// GenerateUniformRandomPointsAsync(BufferIndex, RandomPoints);
-	GeneratePoissonRandomPointsAsync(BufferIndex, RandomPoints);
+	GeneratePoissonRandomPointsAsync(BufferIndex, Difficulty, RandomPoints);
 	// UE_LOG(LogWorldGenerator, Warning, TEXT("Generated %d random points for tile %s in buffer %d"), RandomPoints.Num(), *Tile.ToString(), BufferIndex);
 }
 
-void AWorldGenerator::GenerateUniformRandomPointsAsync(int32 BufferIndex, TArray<RandomPoint>& RandomPoints)
+void AWorldGenerator::GenerateUniformRandomPointsAsync(int32 BufferIndex, int32 Difficulty, TArray<RandomPoint>& RandomPoints)
 {
 	std::uniform_real_distribution<double> PointGenerator(0.0, 1.0);
 
@@ -1007,7 +1114,7 @@ void AWorldGenerator::GenerateUniformRandomPointsAsync(int32 BufferIndex, TArray
 	int32 TotalBarrierCount = 0;
 	for (ABarrierSpawner* Spawner : BarrierSpawners)
 	{
-		int32 BarCount = Spawner->GetBarrierCountAnyThread(PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine));
+		auto BarCount = Spawner->GetBarrierCountAnyThread(PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine), Difficulty);
 		TaskDataBuffers[BufferIndex].BarriersCount[Idx] = BarCount; // 记录每个 Spawner 的障碍物数量
 		TotalBarrierCount += BarCount;
 		++Idx;
@@ -1031,7 +1138,7 @@ void AWorldGenerator::GenerateUniformRandomPointsAsync(int32 BufferIndex, TArray
 	}
 }
 
-void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray<RandomPoint>& RandomPoints)
+void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, int32 Difficulty, TArray<RandomPoint>& RandomPoints)
 {
 	RandomPoints.SetNumUninitialized(0, EAllowShrinking::No);
 
@@ -1056,7 +1163,7 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray
 		double PoissonDistance = 0;
 		for (; EndIndex < BarrierSpawners.Num() && BarrierSpawners[EndIndex]->BarrierGroup == GroupIndex; ++EndIndex)
 		{
-			int32 BarCount = BarrierSpawners[EndIndex]->GetBarrierCountAnyThread(UniformGenerator(RandomEngine));
+			int32 BarCount = BarrierSpawners[EndIndex]->GetBarrierCountAnyThread(UniformGenerator(RandomEngine), Difficulty);
 			PoissonDistance = FMath::Max(PoissonDistance, BarrierSpawners[EndIndex]->PoissonDistance);
 			EachSpawnerCounts[EndIndex] = BarCount;
 			ExpectedBarrierCount += BarCount;
@@ -1091,7 +1198,8 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray
 		for (int32 Idx = StartIndex; Idx < EndIndex; ++Idx)
 		{
 			auto EachSpawnerRealCount = FMath::FloorToInt(EachSpawnerCounts[Idx] * SampleScale);
-			EachSpawnerRealCount = EachSpawnerRealCount == 0 ? 1 : EachSpawnerRealCount;
+			// 确保 scale 不会导致原本需要生成的障碍物的数量变为 0 了
+			EachSpawnerRealCount = EachSpawnerRealCount == 0 && EachSpawnerCounts[Idx] > 0 ? 1 : EachSpawnerRealCount;
 			TaskDataBuffers[BufferIndex].BarriersCount[Idx] = EachSpawnerRealCount; // 记录每个 Spawner 的障碍物数量
 			RealTotalBarrierCount += EachSpawnerRealCount;
 		}
@@ -1151,7 +1259,7 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray
 	for (int32 Idx = StartIndex; Idx < BarrierSpawners.Num(); ++Idx)
 	{
 		ensure(BarrierSpawners[Idx]->BarrierGroup < 0);
-		auto BarCount = BarrierSpawners[Idx]->GetBarrierCountAnyThread(UniformGenerator(RandomEngine));
+		auto BarCount = BarrierSpawners[Idx]->GetBarrierCountAnyThread(UniformGenerator(RandomEngine), Difficulty);
 		TaskDataBuffers[BufferIndex].BarriersCount[Idx] = BarCount;
 		auto OldPosCnt = RandomPoints.Num();
 		RandomPoints.SetNum(OldPosCnt + BarCount, EAllowShrinking::No);
@@ -1263,7 +1371,7 @@ void AWorldGenerator::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 
-	if (!bDebugMode)
+	if (!bDebugMode || DrawType == EDrawType::None)
 	{
 		return;
 	}
@@ -1271,7 +1379,7 @@ void AWorldGenerator::OnConstruction(const FTransform& Transform)
 	InitDataBuffer();
 
 	auto PosOffset = FVector2D(double(CellSize) * XCellNumber / 2, double(CellSize) * YCellNumber / 2);
-	GenerateOneTileAsync(0, FInt32Point(0, 0), PosOffset);
+	GenerateOneTileAsync(0, 0, FInt32Point(0, 0), PosOffset);
 
 	auto& Vertices = TaskDataBuffers[0].VerticesBuffer;
 	if (DrawType == EDrawType::Gaussian)

@@ -69,16 +69,21 @@ void UMissileComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 
 	auto* Character = UGameplayStatics::GetPlayerCharacter(this, 0);		
 	auto CurrentPos = Character->GetActorLocation().X;
+
+	auto* WorldGenerator = Cast<AWorldGenerator>(GetOwner());
+	auto CurrentDifficulty = WorldGenerator->CurrentDifficulty;
+	auto DistanceDifficulty = FMath::Clamp(CurrentDifficulty, 0, ExpectedDistance.Num() - 1);
 	
-	if (CurrentPos == LastPlayerPos)
+	// 没有移动或者当前的难度不会触发导弹
+	if (CurrentPos == LastPlayerPos || ExpectedDistance[DistanceDifficulty] <= 0.0f)
 	{
-		return; // No movement, skip processing
+		return;
 	}
 
 	TotalDistance += FMath::Abs(CurrentPos - LastPlayerPos);
 	TotalTime += DeltaTime;
 
-	double lambda = 1.0 / ExpectedDistance;
+	double lambda = 1.0 / ExpectedDistance[DistanceDifficulty];
 	auto Probability = FMath::Exp(-lambda * TotalDistance);
 
 	auto Rand = FMath::FRandRange(0.0, 1.0);

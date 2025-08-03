@@ -155,6 +155,9 @@ public:
 	float HitSlomoTime = 0.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float CoinHealHealth = 0.5f;  // 每个金币回复的生命值
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
 	int32 FlipTime = 4;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
