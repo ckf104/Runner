@@ -70,10 +70,10 @@ void AGoldCoinSpawner::GenerateGoldTrace(FVector WorldStartPos, double StartYaw,
 		double Y = CoinPos.Y + MaxWalkingSpeed * SpawnTimeInterval * CurrentDirection.Y;
 		double Z = CoinPos.Z + ZVelocity * SpawnTimeInterval + 0.5 * Gravity * SpawnTimeInterval * SpawnTimeInterval;
 
-    DrawDebugBox(GetWorld(), FVector(X, Y, Z), FVector(50, 50, 50), FColor::Yellow, true, 5.0f);
+    // DrawDebugBox(GetWorld(), FVector(X, Y, Z), FVector(50, 50, 50), FColor::Yellow, true, 5.0f);
 
     auto WorldHeight = WorldGenerator->GetVisualHeightFromHorizontalPos(FVector2D(X, Y));
-    DrawDebugBox(GetWorld(), FVector(X, Y, WorldHeight), FVector(50, 50, 50), FColor::Red, true, 5.0f);
+    // DrawDebugBox(GetWorld(), FVector(X, Y, WorldHeight), FVector(50, 50, 50), FColor::Red, true, 5.0f);
     // 地面的碰撞是异步生成的，因此我们使用高度图直接检查碰撞
     if (Z < WorldHeight + BarrierRadius)
     {

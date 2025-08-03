@@ -8,7 +8,9 @@
 #include "Containers/AllowShrinking.h"
 #include "Containers/Array.h"
 #include "Containers/ArrayView.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
 #include "HAL/Platform.h"
 #include "Kismet/GameplayStatics.h"
@@ -16,8 +18,11 @@
 #include "KismetTraceUtils.h"
 #include "Math/Color.h"
 #include "Math/MathFwd.h"
+#include "Misc/AssertionMacros.h"
 #include "ProceduralMeshComponent.h"
 #include "Templates/Tuple.h"
+#include "UObject/ObjectPtr.h"
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <random>
@@ -82,9 +87,34 @@ AWorldGenerator::AWorldGenerator()
 void AWorldGenerator::BeginPlay()
 {
 	InitDataBuffer();
+	SortBarrierSpawners();
 	// SpawnBarrierSpawners();
 
 	Super::BeginPlay();
+}
+
+// 按组号对 Barrier Spawner 进行排序
+void AWorldGenerator::SortBarrierSpawners()
+{
+	BarrierSpawners.Sort([](const TObjectPtr<ABarrierSpawner>& A, const TObjectPtr<ABarrierSpawner>& B) {
+		if (A->bDeferSpawn)
+		{
+			return false; // Defer spawn barriers should be at the end
+		}
+		else if (B->bDeferSpawn)
+		{
+			return true; // Defer spawn barriers should be at the end
+		}
+		if (A->BarrierGroup < 0)
+		{
+			return false; // Group -1 barriers should be at the end
+		}
+		else if (B->BarrierGroup < 0)
+		{
+			return true; // Group -1 barriers should be at the end
+		}
+		return A->BarrierGroup < B->BarrierGroup;
+	});
 }
 
 void AWorldGenerator::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -480,23 +510,50 @@ void AWorldGenerator::CreateMeshFromTileData()
 					UE_LOG(LogTemp, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData!"), PMCIndex, *FIntVector(OldTile.X, OldTile.Y, PMCIndex).ToString());
 				}
 			}
+
+			// Spawn barriers
 			auto NewTile = TileMap[PMCIndex][SectionIdx];
 			int32 StartIdx = 0;
 			for (int32 Idx = 0, TotalBarrier = BarrierSpawners.Num(); Idx < TotalBarrier; ++Idx)
 			{
 				int32 BarCount = BarriersCount[Idx];
-				TArrayView<RandomPoint> RandomPointsView(&RandomPoints[StartIdx], BarCount);
-				if (BarrierSpawners[Idx]->bDeferSpawn)
+				if (BarCount > 0)
 				{
-					CachedSpawnData.Add(FIntVector(NewTile.X, NewTile.Y, Idx), TArray<RandomPoint>(RandomPointsView));
+					TArrayView<RandomPoint> RandomPointsView(&RandomPoints[StartIdx], BarCount);
+					if (BarrierSpawners[Idx]->bDeferSpawn)
+					{
+						CachedSpawnData.Add(FIntVector(NewTile.X, NewTile.Y, Idx), TArray<RandomPoint>(RandomPointsView));
+					}
+					else
+					{
+						BarrierSpawners[Idx]->SpawnBarriers(RandomPointsView, NewTile, this);
+					}
+					StartIdx += BarCount;
 				}
-				else
-				{
-					BarrierSpawners[Idx]->SpawnBarriers(RandomPointsView, NewTile, this);
-				}
-				StartIdx += BarCount;
 			}
-
+			// 可视化采样点
+			if (bDrawSamplingPoint)
+			{
+				TArray<FVector> WorldPositions;
+				TArray<FVector2D> UVPositions;
+				for (auto RandomPos : RandomPoints)
+				{
+					auto WorldPos = GetVisualWorldPositionFromUV(RandomPos.UVPos, NewTile);
+					WorldPositions.Add(WorldPos);
+					UVPositions.Add(RandomPos.UVPos);
+				}
+				UVPositions.Sort([](const FVector2D& A, const FVector2D& B) {
+					return A.X < B.X;
+				});
+				WorldPositions.Sort([](const FVector& A, const FVector& B) {
+					return A.X < B.X;
+				});
+				for (auto WorldPos : WorldPositions)
+				{
+					DrawDebugBox(GetWorld(), WorldPos, FVector(100.0f), FColor::Red, true, 5.0f);
+				}
+			}
+			// 释放 slot
 			BufferStateGameThreadOnly[i] = EBufferState::Idle; // Reset the buffer state
 			// if (AsyncTaskRef[i])
 			{
@@ -836,6 +893,14 @@ void AWorldGenerator::GenerateRandomPointsAsync(int32 BufferIndex, FInt32Point T
 {
 	int64 Seed = ((int64)Tile.X << 32) | (int64)Tile.Y;
 	TaskDataBuffers[BufferIndex].RandomEngine.seed(Seed);
+
+	// GenerateUniformRandomPointsAsync(BufferIndex, RandomPoints);
+	GeneratePoissonRandomPointsAsync(BufferIndex, RandomPoints);
+	UE_LOG(LogTemp, Warning, TEXT("Generated %d random points for tile %s in buffer %d"), RandomPoints.Num(), *Tile.ToString(), BufferIndex);
+}
+
+void AWorldGenerator::GenerateUniformRandomPointsAsync(int32 BufferIndex, TArray<RandomPoint>& RandomPoints)
+{
 	std::uniform_real_distribution<double> PointGenerator(0.0, 1.0);
 
 	int32 Idx = 0;
@@ -866,6 +931,252 @@ void AWorldGenerator::GenerateRandomPointsAsync(int32 BufferIndex, FInt32Point T
 	}
 }
 
+// TODO: 处理障碍物的半径
+void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray<RandomPoint>& RandomPoints)
+{
+	auto XSize = CellSize * XCellNumber;
+	auto YSize = CellSize * YCellNumber;
+
+	auto& RandomEngine = TaskDataBuffers[BufferIndex].RandomEngine;
+	std::uniform_real_distribution<double> UniformGenerator(0.0, 1.0);
+	TArray<FVector2D> OutPoints;
+	TInlineComponentArray<int32, 10> EachSpawnerCounts;
+	EachSpawnerCounts.SetNumUninitialized(BarrierSpawners.Num(), EAllowShrinking::No);
+
+	auto StartIndex = 0;
+	while (StartIndex < BarrierSpawners.Num() && BarrierSpawners[StartIndex]->BarrierGroup >= 0)
+	{
+		int32 GroupIndex = BarrierSpawners[StartIndex]->BarrierGroup;
+		ensure(GroupIndex < GroupDistanceFunc.Num()); // 确保分组索引在范围内
+
+		// 计算每组中 Spawner 希望的障碍物数量
+		int32 ExpectedBarrierCount = 0;
+		int32 EndIndex = StartIndex;
+		double PoissonDistance = 0;
+		for (; EndIndex < BarrierSpawners.Num() && BarrierSpawners[EndIndex]->BarrierGroup == GroupIndex; ++EndIndex)
+		{
+			int32 BarCount = BarrierSpawners[EndIndex]->GetBarrierCountAnyThread(UniformGenerator(RandomEngine));
+			PoissonDistance = FMath::Max(PoissonDistance, BarrierSpawners[EndIndex]->PoissonDistance);
+			EachSpawnerCounts[EndIndex] = BarCount;
+			ExpectedBarrierCount += BarCount;
+		}
+		ensure(PoissonDistance > 0.0);
+
+		OutPoints.SetNum(0, EAllowShrinking::No);
+		auto DistFunc = GetDistanceFunc(GroupDistanceFunc[GroupIndex]);
+		auto SampleNumber = PoissonSampling(XSize, YSize, PoissonDistance, SampleCountBeforeReject, RandomEngine, DistFunc, OutPoints);
+		ensure(SampleNumber == OutPoints.Num()); // 确保采样点数量与返回值一致
+
+		// 根据比例计算每个 Spawner 实际的障碍物数量
+		int32 RealTotalBarrierCount = 0;
+		for (int32 Idx = StartIndex; Idx < EndIndex; ++Idx)
+		{
+			auto EachSpawnerRealCount = FMath::FloorToInt(SampleNumber * ((float)EachSpawnerCounts[Idx] / ExpectedBarrierCount));
+			EachSpawnerRealCount = EachSpawnerRealCount == 0 ? 1 : EachSpawnerRealCount;
+			TaskDataBuffers[BufferIndex].BarriersCount[Idx] = EachSpawnerRealCount; // 记录每个 Spawner 的障碍物数量
+			RealTotalBarrierCount += EachSpawnerRealCount;
+		}
+		if (RealTotalBarrierCount > SampleNumber)
+		{
+			auto ExcessCount = RealTotalBarrierCount - SampleNumber;
+			auto* MaxEle = std::max_element(TaskDataBuffers[BufferIndex].BarriersCount.GetData(),
+					TaskDataBuffers[BufferIndex].BarriersCount.GetData() + TaskDataBuffers[BufferIndex].BarriersCount.Num());
+			ensure(*MaxEle >= ExcessCount); // 确保最大值大于等于多余的数量
+			*MaxEle -= ExcessCount;
+			RealTotalBarrierCount = SampleNumber;
+		}
+		UE_LOG(LogTemp, Log, TEXT("Group %d Generate RealTotalBarrierCount: %d"),
+				GroupIndex, RealTotalBarrierCount);
+
+		// TArray 返回的迭代器与 std 需要的迭代器不匹配
+		std::shuffle(OutPoints.GetData(), OutPoints.GetData() + SampleNumber, RandomEngine);
+		auto OldPosCnt = RandomPoints.Num();
+		RandomPoints.SetNum(OldPosCnt + RealTotalBarrierCount, EAllowShrinking::No);
+		for (int32 i = OldPosCnt; i < OldPosCnt + RealTotalBarrierCount; ++i)
+		{
+			OutPoints[i - OldPosCnt].X /= XSize;
+			OutPoints[i - OldPosCnt].Y /= YSize;
+
+			RandomPoints[i].UVPos = OutPoints[i - OldPosCnt];
+			auto Rotation = FRotator::ZeroRotator;
+			Rotation.Yaw = UniformGenerator(RandomEngine);
+			Rotation.Pitch = UniformGenerator(RandomEngine);
+			Rotation.Roll = UniformGenerator(RandomEngine);
+
+			RandomPoints[i].Rotation = Rotation;
+			RandomPoints[i].Scale = FVector(1.0, 1.0, 1.0); // 设置默认缩放
+		}
+
+		StartIndex = EndIndex; // 更新 StartIndex 到下一个分组的起始位置
+	}
+
+	for (int32 Idx = StartIndex; Idx < BarrierSpawners.Num(); ++Idx)
+	{
+		ensure(BarrierSpawners[Idx]->BarrierGroup < 0);
+		auto BarCount = BarrierSpawners[Idx]->GetBarrierCountAnyThread(UniformGenerator(RandomEngine));
+		TaskDataBuffers[BufferIndex].BarriersCount[Idx] = BarCount;
+		auto OldPosCnt = RandomPoints.Num();
+		RandomPoints.SetNum(OldPosCnt + BarCount, EAllowShrinking::No);
+		for (int32 i = OldPosCnt; i < OldPosCnt + BarCount; ++i)
+		{
+			auto& Point = RandomPoints[i];
+			auto UVPos = FVector2D::ZeroVector;
+			UVPos.X = UniformGenerator(RandomEngine);
+			UVPos.Y = UniformGenerator(RandomEngine);
+			Point.UVPos = UVPos;
+			auto Rotation = FRotator::ZeroRotator;
+			Rotation.Yaw = UniformGenerator(RandomEngine);
+			Rotation.Pitch = UniformGenerator(RandomEngine);
+			Rotation.Roll = UniformGenerator(RandomEngine);
+
+			Point.Rotation = Rotation;
+			Point.Scale = FVector(1.0, 1.0, 1.0); // 设置默认缩放
+		}
+	}
+
+	// TArray<FVector2D> OutPoints;
+	// PoissonSampling(XSize, YSize, PoissonDistance, SampleCountBeforeReject, TaskDataBuffers[BufferIndex].RandomEngine, OutPoints);
+	//
+	// std::uniform_real_distribution<double> PointGenerator(0.0, 1.0);
+	//
+	// // 计算每个 Spawner 的希望的障碍物数量
+	// int32 ExpectedBarrierCount = 0;
+	// TInlineComponentArray<int32, 10> EachSpawnerCounts;
+	// EachSpawnerCounts.SetNumUninitialized(BarrierSpawners.Num(), EAllowShrinking::No);
+	// int32 Idx = 0;
+	// for (ABarrierSpawner* Spawner : BarrierSpawners)
+	// {
+	// 	int32 BarCount = Spawner->GetBarrierCountAnyThread(PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine));
+	// 	EachSpawnerCounts[Idx] = BarCount;
+	// 	ExpectedBarrierCount += BarCount;
+	// 	++Idx;
+	// }
+	//
+	// // 根据比例计算每个 Spawner 实际的障碍物数量
+	// int32 TotalBarrierCount = 0;
+	// Idx = 0;
+	// for (auto EachSpawnerCount : EachSpawnerCounts)
+	// {
+	// 	auto EachSpawnerRealCount = FMath::FloorToInt(OutPoints.Num() * ((float)EachSpawnerCount / ExpectedBarrierCount));
+	// 	EachSpawnerRealCount = EachSpawnerRealCount == 0 ? 1 : EachSpawnerRealCount;
+	// 	TaskDataBuffers[BufferIndex].BarriersCount[Idx] = EachSpawnerRealCount; // 记录每个 Spawner 的障碍物数量
+	// 	TotalBarrierCount += EachSpawnerRealCount;
+	// 	++Idx;
+	// }
+	// if (TotalBarrierCount > OutPoints.Num())
+	// {
+	// 	auto ExcessCount = TotalBarrierCount - OutPoints.Num();
+	// 	auto* MaxEle = std::max_element(TaskDataBuffers[BufferIndex].BarriersCount.GetData(),
+	// 			TaskDataBuffers[BufferIndex].BarriersCount.GetData() + TaskDataBuffers[BufferIndex].BarriersCount.Num());
+	// 	ensure(*MaxEle >= ExcessCount); // 确保最大值大于等于多余的数量
+	// 	*MaxEle -= ExcessCount;
+	// 	TotalBarrierCount = OutPoints.Num();
+	// }
+	//
+	// std::shuffle(OutPoints.GetData(), OutPoints.GetData() + OutPoints.Num(), TaskDataBuffers[BufferIndex].RandomEngine);
+	// RandomPoints.SetNum(TotalBarrierCount, EAllowShrinking::No);
+	// for (int32 i = 0; i < TotalBarrierCount; ++i)
+	// {
+	// 	OutPoints[i].X /= XSize;
+	// 	OutPoints[i].Y /= YSize;
+	//
+	// 	RandomPoints[i].UVPos = OutPoints[i];
+	// 	auto Rotation = FRotator::ZeroRotator;
+	// 	Rotation.Yaw = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
+	// 	Rotation.Pitch = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
+	// 	Rotation.Roll = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
+	//
+	// 	RandomPoints[i].Rotation = Rotation;
+	// 	RandomPoints[i].Scale = FVector(1.0, 1.0, 1.0); // 设置默认缩放
+	// }
+}
+
+template <class T>
+int32 AWorldGenerator::PoissonSampling(double XSize, double YSize, double MinDistance, int32 SampleCountBeforeReject, std::mt19937_64& RandomEngine, T DistLambda, TArray<FVector2D>& OutPoints)
+{
+	auto StartSize = OutPoints.Num();
+
+	// 计算每个点的网格大小
+	double CellSize = MinDistance / FMath::Sqrt(2.0);
+	int32 MaxGridX = FMath::CeilToInt(XSize / CellSize);
+	int32 MaxGridY = FMath::CeilToInt(YSize / CellSize);
+
+	// 创建网格
+	TArray<TArray<FVector2D>> Grid;
+	TArray<bool> GridOccupied;
+	TArray<FVector2D> ActiveList;
+
+	Grid.SetNum(MaxGridX);
+	GridOccupied.SetNumZeroed(MaxGridX * MaxGridY);
+	for (int32 X = 0; X < MaxGridX; ++X)
+	{
+		Grid[X].SetNumUninitialized(MaxGridY);
+	}
+
+	// 生成第一个点
+	std::uniform_real_distribution<double> Generator(0.0, 1.0);
+	FVector2D FirstPoint = FVector2D(Generator(RandomEngine) * XSize, Generator(RandomEngine) * YSize);
+	OutPoints.Add(FirstPoint);
+	ActiveList.Add(FirstPoint);
+	auto FirstGridX = FMath::FloorToInt(FirstPoint.X / CellSize);
+	auto FirstGridY = FMath::FloorToInt(FirstPoint.Y / CellSize);
+	Grid[FirstGridX][FirstGridY] = FirstPoint;
+	GridOccupied[FirstGridX * MaxGridY + FirstGridY] = true;
+
+	auto IsValidPoint = [&GridOccupied, &Grid, DistLambda, XSize, YSize, MinDistance, MaxGridX, MaxGridY](FVector2D NewPos, int32 NewGridX, int32 NewGridY) -> bool {
+		if (NewPos.X < 0 || NewPos.X >= XSize || NewPos.Y < 0 || NewPos.Y >= YSize)
+		{
+			return false; // 点在网格外
+		}
+		for (int32 X = FMath::Max(0, NewGridX - 2); X <= FMath::Min(MaxGridX - 1, NewGridX + 2); ++X)
+		{
+			for (int32 Y = FMath::Max(0, NewGridY - 2); Y <= FMath::Min(MaxGridY - 1, NewGridY + 2); ++Y)
+			{
+				if (GridOccupied[X * MaxGridY + Y] && DistLambda(NewPos, Grid[X][Y], MinDistance))
+				{
+					return false;
+				}
+			}
+		}
+		return true;
+	};
+
+	// 进行采样
+	while (!ActiveList.IsEmpty())
+	{
+		auto Idx = FMath::Clamp(FMath::FloorToInt32(Generator(RandomEngine) * ActiveList.Num()), 0, ActiveList.Num() - 1);
+		FVector2D ActivePoint = ActiveList[Idx];
+		int32 i = 0;
+		for (; i < SampleCountBeforeReject; ++i)
+		{
+			// auto Radius = FMath::FRand() * MinDistance + MinDistance;
+			// auto Angle = FMath::FRand() * 2.0 * PI;
+			auto Radius = Generator(RandomEngine) * MinDistance + MinDistance;
+			auto Angle = Generator(RandomEngine) * 2.0 * PI;
+			FVector2D NewPoint = ActivePoint + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * Radius;
+			auto NewGridX = FMath::FloorToInt(NewPoint.X / CellSize);
+			auto NewGridY = FMath::FloorToInt(NewPoint.Y / CellSize);
+
+			// 检查新点是否有效
+			if (IsValidPoint(NewPoint, NewGridX, NewGridY))
+			{
+				OutPoints.Add(NewPoint);
+				Grid[NewGridX][NewGridY] = NewPoint;
+				GridOccupied[NewGridX * MaxGridY + NewGridY] = true;
+				ActiveList.Add(NewPoint);
+				break;
+			}
+		}
+		if (i == SampleCountBeforeReject)
+		{
+			// 如果没有找到有效的点，则从活动列表中移除当前点
+			ActiveList.RemoveAt(Idx);
+		}
+	}
+
+	auto EndSize = OutPoints.Num();
+	return EndSize - StartSize; // 返回生成的点数
+}
 void AWorldGenerator::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);

@@ -29,15 +29,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
 	int32 MaxBarrierCount = 5; // 最大障碍物数量
 
-	// 保证生成的 Actor 仅由该 BarrierSpawner 管理，可以不使用 UPROPERTY
-	TMultiMap<FInt32Point, TWeakObjectPtr<AActor>> SpawnedBarriers; // 存储生成的障碍物实例
-
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Barrier Spawner")
 	TSubclassOf<AActor> BarrierClass; // 用于生成障碍物的类
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Barrier Spawner")
 	int32 MaxCachedBarriers = 10; // 最大缓存障碍物数量
 
-private:
+protected:
 	TArray<TWeakObjectPtr<AActor>> CachedBarriers; // 存储缓存的障碍物实例
+
+	// 保证生成的 Actor 仅由该 BarrierSpawner 管理，可以不使用 UPROPERTY
+	TMultiMap<FInt32Point, TWeakObjectPtr<AActor>> SpawnedBarriers; // 存储生成的障碍物实例
 };

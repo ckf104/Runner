@@ -26,8 +26,17 @@ public:
 	// Sets default values for this actor's properties
 	ABarrierSpawner();
 
+	// 这些变量仅允许在编辑器中修改，不能在运行时修改，并且可能被其它线程访问
+	// 但 UE 不支持把这些成员变量标记为 const
 	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
 	EAlignMode AlignMode = EAlignMode::AlignGravity; // 对齐模式
+
+	// 生成的障碍物所在的组编号，采样时不同组的障碍物相互不影响
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
+	int32 BarrierGroup = 0;
+
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
+	float PoissonDistance = 1200.0f; // 泊松采样的距离
 
 	// 障碍物的偏移量，使得障碍物能陷到地里去
 	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
