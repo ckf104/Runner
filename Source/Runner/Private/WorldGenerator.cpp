@@ -23,6 +23,7 @@
 #include "Math/Color.h"
 #include "Math/MathFwd.h"
 #include "Misc/AssertionMacros.h"
+#include "MissileComponent.h"
 #include "ProceduralMeshComponent.h"
 #include "Templates/Tuple.h"
 #include "UObject/ObjectPtr.h"
@@ -87,6 +88,8 @@ AWorldGenerator::AWorldGenerator()
 	{
 		TilesInBuilding[i] = FInt32Point(INT32_MAX, INT32_MAX); // Initialize to an invalid tile
 	}
+
+	MissileComponent = CreateDefaultSubobject<UMissileComponent>(TEXT("MissileComponent"));
 }
 
 // Called when the game starts or when spawned
@@ -934,6 +937,15 @@ double AWorldGenerator::GetHeightFromHorizontalPos(FVector2D Pos /*, UPrimitiveC
 		}
 	}
 	return GroundPos.Z;
+}
+
+FVector2D AWorldGenerator::ClampToWorld(FVector2D Pos, double Radius) const
+{
+	auto YSize = double(CellSize) * YCellNumber;
+	auto ClampedY = FMath::Clamp(Pos.Y, Radius, YSize - Radius);
+
+	// TODO：截断 X 坐标？
+	return FVector2D(Pos.X, ClampedY);
 }
 
 // FVector AWorldGenerator::TransformUVToWorldPos(const RandomPoint& Point, FInt32Point Tile) const

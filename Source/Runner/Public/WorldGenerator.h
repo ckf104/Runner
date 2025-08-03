@@ -243,6 +243,13 @@ public:
 
 	double GetEvilPos() { return EvilPos; }
 
+public:
+	UPROPERTY(EditAnywhere, Category = "Missile")
+	TObjectPtr<class UMissileComponent> MissileComponent;
+
+	// 用于导弹生成
+	FVector2D ClampToWorld(FVector2D Pos, double ObjectRadius) const;
+
 private:
 	void UpdateEvilPos(float DeltaTime);
 
