@@ -1072,9 +1072,11 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray
 
 		// 根据比例计算每个 Spawner 实际的障碍物数量
 		int32 RealTotalBarrierCount = 0;
+		auto SampleScale = FMath::Min(float(SampleNumber) / ExpectedBarrierCount, 1.0f);
+		
 		for (int32 Idx = StartIndex; Idx < EndIndex; ++Idx)
 		{
-			auto EachSpawnerRealCount = FMath::FloorToInt(SampleNumber * ((float)EachSpawnerCounts[Idx] / ExpectedBarrierCount));
+			auto EachSpawnerRealCount = FMath::FloorToInt(EachSpawnerCounts[Idx] * SampleScale);
 			EachSpawnerRealCount = EachSpawnerRealCount == 0 ? 1 : EachSpawnerRealCount;
 			TaskDataBuffers[BufferIndex].BarriersCount[Idx] = EachSpawnerRealCount; // 记录每个 Spawner 的障碍物数量
 			RealTotalBarrierCount += EachSpawnerRealCount;

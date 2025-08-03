@@ -5,6 +5,7 @@
 #include "Containers/AllowShrinking.h"
 #include "Math/MathFwd.h"
 #include "Misc/AssertionMacros.h"
+#include "Templates/UnrealTemplate.h"
 
 AISMBarrierSpawner::AISMBarrierSpawner()
 {
@@ -12,6 +13,7 @@ AISMBarrierSpawner::AISMBarrierSpawner()
 	ISMComponent = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("ISMComponent"));
 	RootComponent = ISMComponent;
 	ISMComponent->SetMobility(EComponentMobility::Static);
+	ISMComponent->bReceivesDecals = false; // 不接收 decal
 }
 
 int32 AISMBarrierSpawner::GetBarrierCountAnyThread(double RandomValue) const
@@ -52,7 +54,7 @@ void AISMBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32
 	// 在最后统一标记 render state 为 dirty
 	ISMComponent->MarkRenderStateDirty();
 	ensure(TileInstanceIndices.Find(Tile) == nullptr); // Ensure no existing entry for this tile
-	TileInstanceIndices.Add(Tile, InstanceIndices);
+	TileInstanceIndices.Add(Tile, MoveTemp(InstanceIndices));
 }
 
 void AISMBarrierSpawner::RemoveTile(FInt32Point Tile)

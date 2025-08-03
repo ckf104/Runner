@@ -4,6 +4,7 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "Math/MathFwd.h"
+#include "Templates/UnrealTemplate.h"
 #include "UObject/UnrealType.h"
 
 AISMClusterSpawner::AISMClusterSpawner()
@@ -123,7 +124,7 @@ void AISMClusterSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32
 	}
 
 	ensure(TileInstanceIndices.Find(Tile) == nullptr); // Ensure no existing entry for this tile
-	TileInstanceIndices.Add(Tile, InstanceIndices);
+	TileInstanceIndices.Add(Tile, MoveTemp(InstanceIndices));
 }
 
 void AISMClusterSpawner::RemoveTile(FInt32Point Tile)
@@ -197,6 +198,7 @@ void AISMClusterSpawner::PostEditChangeProperty(FPropertyChangedEvent& PropertyC
 					UInstancedStaticMeshComponent* NewISMComponent = NewObject<UInstancedStaticMeshComponent>(this, UInstancedStaticMeshComponent::StaticClass(), *FString::Printf(TEXT("ISMComponent_%d"), i));
 					NewISMComponent->SetMobility(EComponentMobility::Static);
 					NewISMComponent->SetCollisionProfileName("Barrier");
+					NewISMComponent->bReceivesDecals = false;
 					NewISMComponent->SetupAttachment(RootComponent);
 					NewISMComponent->RegisterComponent();
 					ISMComponents[i] = NewISMComponent;

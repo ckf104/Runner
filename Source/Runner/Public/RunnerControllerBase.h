@@ -17,4 +17,6 @@ class RUNNER_API ARunnerControllerBase : public APlayerController
 public:	
 	UFUNCTION(BlueprintImplementableEvent, Category = "Runner")
 	void GameOver(int32 EndScore);
+
+	FRotator GetControlRotation() const override;
 };

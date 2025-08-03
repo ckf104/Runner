@@ -18,7 +18,7 @@ struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogRunnerCharacter, Log, All);
 
-enum class EThrustStatus : int8
+enum class EThrustSource : int8
 {
 	FreeThrust = 1,
 	UserThrust = 2
@@ -77,6 +77,13 @@ public:
 	void DealBarrierOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
 			UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep,
 			FHitResult const& SweepResult);
+	
+	UFUNCTION()
+	void DealBarrierOverlapEnd(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+			UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
+
+	void EnterMud();
+	void OutOfMud();	
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float TurnSpeedScale = 0.2f;
@@ -87,11 +94,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Skate Input")
 	float GetTurnValue() const;
 	
-	void StartThrust(EThrustStatus ThrustStatus);
-	void StopThrust(EThrustStatus ThrustStatus);
-	UFUNCTION(BlueprintCallable)
+	void StartThrust(EThrustSource ThrustStatus);
+	void StopThrust(EThrustSource ThrustStatus);
 	void StartSlowDown();
-	UFUNCTION(BlueprintCallable)
 	void StopSlowDown();
 	void StartDown();
 	void StopDown();
@@ -181,6 +186,9 @@ public:
 	// 因此使用 int8 来表示状态
 	int8 Thrusting = 0;
 	int8 SlowDown = 0;
+	int8 InMud = 0; // 是否在泥潭中
+
+	bool IsInMud() const { return InMud > 0; }
 
 	// UI Settings
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")

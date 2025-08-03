@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "BPBarrierSpawner.h"
+#include "Containers/AllowShrinking.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "UObject/WeakObjectPtrTemplates.h"
@@ -21,7 +22,7 @@ void ABPBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 		// 检查是否有缓存的障碍物可用
 		while (CachedBarriers.Num() > 0)
 		{
-			TWeakObjectPtr<AActor> CachedBarrier = CachedBarriers.Pop();
+			TWeakObjectPtr<AActor> CachedBarrier = CachedBarriers.Pop(EAllowShrinking::No);
 			CachedActor = CachedBarrier.Get();
 			if (CachedActor)
 			{

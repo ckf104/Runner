@@ -101,6 +101,7 @@ void ARunnerCharacter::BeginPlay()
 		}
 	});
 	GetCapsuleComponent()->OnComponentBeginOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlap);
+	GetCapsuleComponent()->OnComponentEndOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlapEnd);
 	InitUI();
 
 	GetMesh()->CreateDynamicMaterialInstance(0);
@@ -144,9 +145,9 @@ void ARunnerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ARunnerCharacter::Look);
 
-		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Started, this, &ARunnerCharacter::StartThrust, EThrustStatus::UserThrust);
-		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Completed, this, &ARunnerCharacter::StopThrust, EThrustStatus::UserThrust);
-		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Canceled, this, &ARunnerCharacter::StopThrust, EThrustStatus::UserThrust);
+		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Started, this, &ARunnerCharacter::StartThrust, EThrustSource::UserThrust);
+		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Completed, this, &ARunnerCharacter::StopThrust, EThrustSource::UserThrust);
+		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Canceled, this, &ARunnerCharacter::StopThrust, EThrustSource::UserThrust);
 
 		auto* RunnerMoveComp = Cast<URunnerMovementComponent>(GetMovementComponent());
 		EnhancedInputComponent->BindAction(DownAction, ETriggerEvent::Started, RunnerMoveComp, &URunnerMovementComponent::StartDown);
@@ -174,13 +175,13 @@ void ARunnerCharacter::Tick(float Delta)
 		// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::Tick called with Delta: %s"), *GetVelocity().ToString());
 	}
 
-	if (Thrusting & static_cast<int8>(EThrustStatus::UserThrust))
+	if (Thrusting & static_cast<int8>(EThrustSource::UserThrust))
 	{
 		Mana -= ManaReduceSpeed * Delta;
 		if (Mana <= 0.0f)
 		{
 			Mana = 0.0f;
-			StopThrust(EThrustStatus::UserThrust);
+			StopThrust(EThrustSource::UserThrust);
 		}
 		GameUIWidget->UpdateGas(Mana / MaxMana);
 	}
@@ -314,7 +315,7 @@ void ARunnerCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
-void ARunnerCharacter::StartThrust(EThrustStatus ThrustStatus)
+void ARunnerCharacter::StartThrust(EThrustSource ThrustStatus)
 {
 	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::StartThrust called, Mana: %f"), Mana);
 	int8 ThrustStatusInt = static_cast<int8>(ThrustStatus);
@@ -322,7 +323,7 @@ void ARunnerCharacter::StartThrust(EThrustStatus ThrustStatus)
 	{
 		return;
 	}
-	if (Mana <= MinimumThrustMana && ThrustStatus != EThrustStatus::FreeThrust)
+	if (Mana <= MinimumThrustMana && ThrustStatus != EThrustSource::FreeThrust)
 	{
 		return; // Not enough mana to thrust
 	}
@@ -342,7 +343,7 @@ void ARunnerCharacter::StartThrust(EThrustStatus ThrustStatus)
 	}
 }
 
-void ARunnerCharacter::StopThrust(EThrustStatus ThrustStatus)
+void ARunnerCharacter::StopThrust(EThrustSource ThrustStatus)
 {
 	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::StopThrust called, Mana: %f"), Mana);
 	int8 ThrustStatusInt = static_cast<int8>(ThrustStatus);
@@ -479,9 +480,51 @@ void ARunnerCharacter::DealBarrierOverlap(UPrimitiveComponent* OverlappedCompone
 	{
 		// UE_LOG(LogRunnerCharacter, Warning, TEXT("ARunnerCharacter::DealBarrierOverlap: Get Coin %d"), OtherBodyIndex);
 	}
+	else if (OtherComp->ComponentHasTag("Mud"))
+	{
+		EnterMud();
+		// UE_LOG(LogRunnerCharacter, Warning, TEXT("ARunnerCharacter::DealBarrierOverlap: Hit Mud %s"), *OtherActor->GetName());
+	}
 	else
 	{
 		TakeHitImpact(false);
+	}
+}
+
+void ARunnerCharacter::DealBarrierOverlapEnd(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
+{
+	if (OtherComp->ComponentHasTag("Mud"))
+	{
+		// UE_LOG(LogRunnerCharacter, Warning, TEXT("Mud %s overlap end"), *OtherActor->GetName());
+		OutOfMud();
+	}
+}
+
+void ARunnerCharacter::EnterMud()
+{
+	InMud++;
+	
+	// 当处于地面上时，进入泥潭触发 slow down
+	auto* RunnerMoveComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+	auto* FloorActor = RunnerMoveComp->CurrentFloor.HitResult.GetActor();
+	if (FloorActor == WorldGenerator && InMud == 1)
+	{
+		StartSlowDown();
+	}
+}
+
+void ARunnerCharacter::OutOfMud()
+{
+	InMud--;
+	ensure(InMud >= 0);
+
+	// 当离开泥潭时，停止 slow down
+	auto* RunnerMoveComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+	auto* FloorActor = RunnerMoveComp->CurrentFloor.HitResult.GetActor();
+	if (FloorActor == WorldGenerator && InMud == 0)
+	{
+		StopSlowDown();
 	}
 }
 

@@ -81,7 +81,7 @@ void URunnerMovementComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 	// 移动后更新滑板的旋转
 	UpdateSkateBoardRotation(DeltaTime);
 	InAirTime += DeltaTime;
-	UE_LOG(LogRunnerMovement, Log, TEXT("Skateboard Ground Velocity Size: %f, Thrusting: %d, SlowDown: %d, MaxSpeed: %f"), Velocity.Size2D(), Thrusting, SlowDown, GetMaxSpeed());
+	// UE_LOG(LogRunnerMovement, Log, TEXT("Skateboard Ground Velocity Size: %f, Thrusting: %d, SlowDown: %d, MaxSpeed: %f"), Velocity.Size2D(), Thrusting, SlowDown, GetMaxSpeed());
 }
 
 ELevel URunnerMovementComponent::CalcLandLevel(FRotator TargetRotation) const
@@ -144,25 +144,30 @@ void URunnerMovementComponent::ProcessLanded(const FHitResult& Hit, float remain
 	bool bAccuracy = false;
 	LastTickTargetRotation = CalcWakingTargetRotation(bAccuracy);
 
-	if (InAirTime > MinimumAirTime)
+	// 仅当落到地面上时才处理
+	if (Hit.GetActor() == WorldGenerator)
 	{
-		auto LandLevel = ELevel::Bad;
-		if (bAccuracy)
+		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
+		if (Runner->IsInMud())
 		{
-			LandLevel = CalcLandLevel(LastTickTargetRotation);
-			// 仅当落到地面上时才处理
-			if (Hit.GetActor() == WorldGenerator)
+			Runner->StartSlowDown();
+		}
+		if (InAirTime > MinimumAirTime)
+		{
+			auto LandLevel = ELevel::Bad;
+			if (bAccuracy)
 			{
+				LandLevel = CalcLandLevel(LastTickTargetRotation);
 				ProcessLandLevel(LandLevel);
-				Cast<ARunnerCharacter>(GetOwner())->ShowLandUI(LandLevel);
+				Runner->ShowLandUI(LandLevel);
 			}
 		}
 	}
+	// 重置空中时间
 	InAirTime = 0.0f;
 	StopDown();
 
 	Super::ProcessLanded(Hit, remainingTime, Iterations);
-	// 重置空中时间
 }
 
 void URunnerMovementComponent::ProcessLandLevel(ELevel LandLevel)
@@ -175,13 +180,13 @@ void URunnerMovementComponent::ProcessLandLevel(ELevel LandLevel)
 			case ELevel::Perfect:
 			{
 				Runner->AddGas(GasPercentageWhenPerfect);
-				Runner->StartThrust(EThrustStatus::FreeThrust);
+				Runner->StartThrust(EThrustSource::FreeThrust);
 				FTimerHandle ThrustTimerHandle;
 				TWeakObjectPtr<ARunnerCharacter> WeakRunner(Runner);
 				Runner->GetWorld()->GetTimerManager().SetTimer(ThrustTimerHandle, [WeakRunner]() {
 					if (WeakRunner.IsValid())
 					{
-						WeakRunner->StopThrust(EThrustStatus::FreeThrust);
+						WeakRunner->StopThrust(EThrustSource::FreeThrust);
 					} }, PerfectThrustSpeedTime, false);
 			}
 			break;
@@ -534,6 +539,25 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 	auto OldHitActor = OldFloor.HitResult.GetActor();
 	auto NewHitActor = NewFloor.HitResult.GetActor();
 
+	if (OldHitActor == WorldGenerator && NewHitActor != WorldGenerator)
+	{
+		// 离开地面，脱离泥潭
+		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
+		if (Runner->IsInMud())
+		{
+			Runner->StopSlowDown();
+		}
+	}
+	else if (OldHitActor != WorldGenerator && NewHitActor == WorldGenerator)
+	{
+		// 重新接触地面
+		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
+		if (Runner->IsInMud())
+		{
+			Runner->StartSlowDown();
+		}
+	}
+
 	// 只处理地面的情况
 	if (OldHitActor != WorldGenerator || NewHitActor != WorldGenerator)
 	{
@@ -587,10 +611,22 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 
 	if (bUseCurvatureForTakeoff && Curvature * VelocitySize * VelocitySize > TakeoffThreshold)
 	{
+		// 离开地面，脱离泥潭
+		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
+		if (Runner->IsInMud())
+		{
+			Runner->StopSlowDown();
+		}
 		return true;
 	}
 	else if (!bUseCurvatureForTakeoff && (NewDot - OldDot) >= DeltaNormalThreshold)
 	{
+		// 离开地面，脱离泥潭
+		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
+		if (Runner->IsInMud())
+		{
+			Runner->StopSlowDown();
+		}
 		// UE_LOG(LogRunnerMovement, Warning, TEXT("ShouldCatchAir: OldDot: %f, NewDot: %f, Delta: %f"), OldDot, NewDot, NewDot - OldDot);
 		return true;
 	}

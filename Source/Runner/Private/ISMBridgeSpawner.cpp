@@ -3,6 +3,7 @@
 
 #include "ISMBridgeSpawner.h"
 #include "Math/MathFwd.h"
+#include "Templates/UnrealTemplate.h"
 
 AISMBridgeSpawner::AISMBridgeSpawner()
 {
@@ -51,7 +52,7 @@ void AISMBridgeSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 	// 在最后统一标记 render state 为 dirty
 	ISMComponent->MarkRenderStateDirty();
 	ensure(TileInstanceIndices.Find(Tile) == nullptr); // Ensure no existing entry for this tile
-	TileInstanceIndices.Add(Tile, InstanceIndices);
+	TileInstanceIndices.Add(Tile, MoveTemp(InstanceIndices));
 }
 
 double AISMBridgeSpawner::GetCustomSlopeAngle(int32 InstanceIndex) const
