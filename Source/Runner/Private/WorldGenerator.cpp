@@ -2,6 +2,8 @@
 
 #include "WorldGenerator.h"
 #include "Algo/MinElement.h"
+#include "Async/Async.h"
+#include "Async/TaskGraphInterfaces.h"
 #include "BarrierSpawner.h"
 #include "Containers/Array.h"
 #include "Engine/World.h"
@@ -298,6 +300,7 @@ void AWorldGenerator::GenerateOneTile(int32 InX, int32 InY)
 			TrianglesBuffer[Index + 5] = ((Y + 1) * (XCellNumber + 1)) + X;
 		}
 	}
+
 
 	UKismetProceduralMeshLibrary::CalculateTangentsForMesh(VerticesBuffer, TrianglesBuffer, UV0Buffer, NormalsBuffer, TangentsBuffer);
 	auto SectionIdx = FindReplaceableSection(PMCIndex);

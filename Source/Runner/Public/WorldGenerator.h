@@ -25,18 +25,13 @@ class RUNNER_API AWorldGenerator : public AActor
 
 public:
 	static constexpr int32 MaxRegionCount = 4; // 最多同时存在的 Region 数量
+	static constexpr int32 MaxThreadCount = 4; // 最大线程数
 
 	// Sets default values for this actor's properties
 	AWorldGenerator();
 
-	UPROPERTY(VisibleAnywhere, Category = "World Generation")
-	mutable TObjectPtr<class UProceduralMeshComponent> ProceduralMeshComp[MaxRegionCount];
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
 	TObjectPtr<class UMaterialInterface> TileMaterial;
-
-	//UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
-	//TArray<TSubclassOf<class ABarrierSpawner>> BarrierSpawnerClasses;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
 	TArray<TObjectPtr<class ABarrierSpawner>> BarrierSpawners; // 存储生成的障碍物生成器实例
@@ -72,11 +67,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
 	TArray<float> PerlinAmplitude;
 
+	UPROPERTY(VisibleAnywhere, Category = "World Generation")
+	mutable TObjectPtr<class UProceduralMeshComponent> ProceduralMeshComp[MaxRegionCount];
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 	void InitDataBuffer();
-	//void SpawnBarrierSpawners();
+	// void SpawnBarrierSpawners();
 
 public:
 	// Called every frame
@@ -131,6 +129,15 @@ public:
 private:
 	mutable TArray<FInt32Point> TileMap[MaxRegionCount]; // 用于存储生成的方格位置
 
+	struct TaskBuffer
+	{
+		TArray<FVector> VerticesBuffer;
+		TArray<FVector> NormalsBuffer;
+		TArray<FVector2D> UV0Buffer;
+		TArray<FProcMeshTangent> TangentsBuffer;
+	}; 
+	TaskBuffer TaskDataBuffers[MaxThreadCount];
+
 	TArray<FVector> VerticesBuffer;
 	TArray<int32> TrianglesBuffer;
 	TArray<FVector> NormalsBuffer;
@@ -150,4 +157,7 @@ private:
 	mutable int64 CurrentVersionIndex = 0;
 
 	void DebugPrint() const;
+
+private:
+	static void GenerateOneTileAsync(int32 BufferIndex);
 };

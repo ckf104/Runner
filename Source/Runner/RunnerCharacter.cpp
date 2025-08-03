@@ -89,14 +89,17 @@ void ARunnerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	{
 
 		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+		// EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
+		// EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ARunnerCharacter::Move);
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ARunnerCharacter::Look);
+
+		EnhancedInputComponent->BindActionValue(DownAction);
+		EnhancedInputComponent->BindActionValue(MoveAction);
 	}
 	else
 	{
@@ -115,6 +118,28 @@ void ARunnerCharacter::Tick(float Delta)
 		AddMovementInput(GetActorForwardVector(), 1.0f);
 		// UE_LOG(LogTemplateCharacter, Log, TEXT("ARunnerCharacter::Tick called with Delta: %s"), *GetVelocity().ToString());
 	}
+}
+
+float ARunnerCharacter::GetDownValue() const
+{
+	auto* InputComp = Cast<UEnhancedInputComponent>(InputComponent);
+	if (InputComp)
+	{
+		FInputActionValue DownValue = InputComp->GetBoundActionValue(DownAction);
+		return DownValue.Get<float>();
+	}
+	return 0.0f; // Default value if no input is found
+}
+
+float ARunnerCharacter::GetTurnValue() const
+{
+	auto* InputComp = Cast<UEnhancedInputComponent>(InputComponent);
+	if (InputComp)
+	{
+		FInputActionValue MoveValue = InputComp->GetBoundActionValue(MoveAction);
+		return MoveValue.Get<FVector2D>().X;
+	}
+	return 0.0f; // Default value if no input is found
 }
 
 void ARunnerCharacter::TurnDirection(float Delta)

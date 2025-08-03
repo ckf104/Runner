@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "Public/RunnerMovementComponent.h"
 #include "Logging/LogMacros.h"
 #include "RunnerCharacter.generated.h"
 
@@ -44,6 +45,9 @@ class ARunnerCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* LookAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
+	UInputAction* DownAction;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	bool bAutoMove = false;
 
@@ -54,7 +58,15 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float TurnSpeedScale = 0.2f;
+
+	UFUNCTION(BlueprintCallable, Category = "Skate Input")
+	float GetDownValue() const;
 	
+	UFUNCTION(BlueprintCallable, Category = "Skate Input")
+	float GetTurnValue() const;
+
+	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "Skate Controller")
+	void ShowLandUI(ELevel LandLevel);
 
 protected:
 
