@@ -931,7 +931,6 @@ void AWorldGenerator::GenerateUniformRandomPointsAsync(int32 BufferIndex, TArray
 	}
 }
 
-// TODO: 处理障碍物的半径
 void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray<RandomPoint>& RandomPoints)
 {
 	auto XSize = CellSize * XCellNumber;
@@ -1033,62 +1032,6 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray
 			Point.Scale = FVector(1.0, 1.0, 1.0); // 设置默认缩放
 		}
 	}
-
-	// TArray<FVector2D> OutPoints;
-	// PoissonSampling(XSize, YSize, PoissonDistance, SampleCountBeforeReject, TaskDataBuffers[BufferIndex].RandomEngine, OutPoints);
-	//
-	// std::uniform_real_distribution<double> PointGenerator(0.0, 1.0);
-	//
-	// // 计算每个 Spawner 的希望的障碍物数量
-	// int32 ExpectedBarrierCount = 0;
-	// TInlineComponentArray<int32, 10> EachSpawnerCounts;
-	// EachSpawnerCounts.SetNumUninitialized(BarrierSpawners.Num(), EAllowShrinking::No);
-	// int32 Idx = 0;
-	// for (ABarrierSpawner* Spawner : BarrierSpawners)
-	// {
-	// 	int32 BarCount = Spawner->GetBarrierCountAnyThread(PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine));
-	// 	EachSpawnerCounts[Idx] = BarCount;
-	// 	ExpectedBarrierCount += BarCount;
-	// 	++Idx;
-	// }
-	//
-	// // 根据比例计算每个 Spawner 实际的障碍物数量
-	// int32 TotalBarrierCount = 0;
-	// Idx = 0;
-	// for (auto EachSpawnerCount : EachSpawnerCounts)
-	// {
-	// 	auto EachSpawnerRealCount = FMath::FloorToInt(OutPoints.Num() * ((float)EachSpawnerCount / ExpectedBarrierCount));
-	// 	EachSpawnerRealCount = EachSpawnerRealCount == 0 ? 1 : EachSpawnerRealCount;
-	// 	TaskDataBuffers[BufferIndex].BarriersCount[Idx] = EachSpawnerRealCount; // 记录每个 Spawner 的障碍物数量
-	// 	TotalBarrierCount += EachSpawnerRealCount;
-	// 	++Idx;
-	// }
-	// if (TotalBarrierCount > OutPoints.Num())
-	// {
-	// 	auto ExcessCount = TotalBarrierCount - OutPoints.Num();
-	// 	auto* MaxEle = std::max_element(TaskDataBuffers[BufferIndex].BarriersCount.GetData(),
-	// 			TaskDataBuffers[BufferIndex].BarriersCount.GetData() + TaskDataBuffers[BufferIndex].BarriersCount.Num());
-	// 	ensure(*MaxEle >= ExcessCount); // 确保最大值大于等于多余的数量
-	// 	*MaxEle -= ExcessCount;
-	// 	TotalBarrierCount = OutPoints.Num();
-	// }
-	//
-	// std::shuffle(OutPoints.GetData(), OutPoints.GetData() + OutPoints.Num(), TaskDataBuffers[BufferIndex].RandomEngine);
-	// RandomPoints.SetNum(TotalBarrierCount, EAllowShrinking::No);
-	// for (int32 i = 0; i < TotalBarrierCount; ++i)
-	// {
-	// 	OutPoints[i].X /= XSize;
-	// 	OutPoints[i].Y /= YSize;
-	//
-	// 	RandomPoints[i].UVPos = OutPoints[i];
-	// 	auto Rotation = FRotator::ZeroRotator;
-	// 	Rotation.Yaw = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
-	// 	Rotation.Pitch = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
-	// 	Rotation.Roll = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
-	//
-	// 	RandomPoints[i].Rotation = Rotation;
-	// 	RandomPoints[i].Scale = FVector(1.0, 1.0, 1.0); // 设置默认缩放
-	// }
 }
 
 template <class T>

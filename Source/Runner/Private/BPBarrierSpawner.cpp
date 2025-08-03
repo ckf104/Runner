@@ -5,11 +5,6 @@
 #include "GameFramework/Actor.h"
 #include "UObject/WeakObjectPtrTemplates.h"
 
-int32 ABPBarrierSpawner::GetBarrierCountAnyThread(double RandomValue) const
-{
-	return FMath::RoundToInt(float(FMath::Lerp(MinBarrierCount, MaxBarrierCount, RandomValue)));
-}
-
 void ABPBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator)
 {
 	if (!WorldGenerator || !BarrierClass)
@@ -19,8 +14,8 @@ void ABPBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 
 	for (auto& Point : Positions)
 	{
-    FTransform Transform;
-    GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
+		FTransform Transform;
+		GetTransformFromSeed(Transform, Point, Tile, WorldGenerator);
 		AActor* CachedActor = nullptr;
 
 		// 检查是否有缓存的障碍物可用
@@ -44,6 +39,7 @@ void ABPBarrierSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 		SpawnedBarriers.Add(Tile, CachedActor);
 	}
 }
+
 void ABPBarrierSpawner::RemoveTile(FInt32Point Tile)
 {
 	TArray<TWeakObjectPtr<AActor>> OutValues;

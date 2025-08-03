@@ -17,10 +17,10 @@ class RUNNER_API AISMBridgeSpawner : public AISMBarrierSpawner
 public:
 	AISMBridgeSpawner();
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
 	float MinBridgeAngle = 10.0f; // 最小桥梁角度
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
 	float MaxBridgeAngle = 45.0f; // 最大桥梁角度
 
 	void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;

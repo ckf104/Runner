@@ -39,13 +39,13 @@ void AISMBridgeSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 			// Reuse an existing instance index if available
 			// Transform.SetScale3D(FVector(Point.Size));
 			int32 InstanceIndex = ReplaceInstanceIndices.Pop(EAllowShrinking::No);
-			ISMComponent->UpdateInstanceTransform(InstanceIndex, Transform, true, false, false);
+			ISMComponent->UpdateInstanceTransform(InstanceIndex, Transform, true, false, true);
 			InstanceIndices[Idx++] = InstanceIndex;
 		}
 		else
 		{
 			// Add a new instance
-			InstanceIndices[Idx++] = ISMComponent->AddInstance(Transform);
+			InstanceIndices[Idx++] = ISMComponent->AddInstance(Transform, true);
 		}
 	}
 	// 在最后统一标记 render state 为 dirty

@@ -46,6 +46,12 @@ public:
 	float BarrierRadius = 10.0f; // 障碍物半径
 
 	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
+	int32 MinBarrierCount = 20; // 最小障碍物数量
+
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
+	int32 MaxBarrierCount = 40; // 最大障碍物数量
+
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
 	bool bDeferSpawn = false; // 是否延迟 spawn，默认不延迟
 
 protected:
@@ -56,9 +62,9 @@ protected:
 
 public:
 	virtual void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) {}
-	virtual bool DeferSpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) { return true;}
+	virtual bool DeferSpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) { return true; }
 	virtual void RemoveTile(FInt32Point Tile) {}
-	virtual int32 GetBarrierCountAnyThread(double RandomValue) const { return 10; }
+	virtual int32 GetBarrierCountAnyThread(double RandomValue) const { return FMath::RoundToInt(float(FMath::Lerp(MinBarrierCount, MaxBarrierCount, RandomValue))); }
 
 	virtual bool BarrierHasCustomSlope() const { return false; }
 	virtual double GetCustomSlopeAngle(int32 InstanceIndex) const { return 0.0; }

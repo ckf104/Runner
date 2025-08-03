@@ -26,13 +26,7 @@ public:
 
 	const TArray<int32>* GetInstanceInTile(FInt32Point Tile) const { return TileInstanceIndices.Find(Tile); };
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
-	int32 MinBarrierCount = 30; // 最小障碍物数量
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
-	int32 MaxBarrierCount = 60; // 最大障碍物数量
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
 	UInstancedStaticMeshComponent* ISMComponent;
 
 protected:

@@ -21,18 +21,11 @@ class RUNNER_API ABPBarrierSpawner : public ABarrierSpawner
 public:
 	void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
 	void RemoveTile(FInt32Point Tile) override;	
-	int32 GetBarrierCountAnyThread(double RandomValue) const override;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
-	int32 MinBarrierCount = 2; // 最小障碍物数量
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
-	int32 MaxBarrierCount = 5; // 最大障碍物数量
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Barrier Spawner")
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
 	TSubclassOf<AActor> BarrierClass; // 用于生成障碍物的类
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Barrier Spawner")
+	UPROPERTY(EditAnywhere, Category = "Barrier Spawner")
 	int32 MaxCachedBarriers = 10; // 最大缓存障碍物数量
 
 protected:
