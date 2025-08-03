@@ -136,6 +136,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
 	float HitSlomoTime = 0.5f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	int32 FlipTime = 4;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float FlipInterval = 0.5f;
+
+	void UpdateFlicker(float Delta);
+
 	// 当 evil 领先这个距离时触发伤害逻辑
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evil Chase")
 	float DeltaTakeDamge = 0.1f;
@@ -144,10 +152,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evil Chase")
 	float DamageInterval = 1.0f; 
 
+	void CheckEvilChase(float Delta);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug")
 	bool bInfiniteHealth = false;
 
 	bool bThrusting = false;
+
+	bool bFlicker = false;
+	bool bMaterialFlipped = false;
+
+	float CurrentFlickerTime = 0.0f;
 
 	float CurrentDamageInterval = 0.5f;
 
@@ -159,6 +174,17 @@ public:
 	void ShowDamageUI(bool bOnlyUI);
 
 	void InitUI();
+
+	UPROPERTY(EditAnywhere, Category = "Health")
+	float Opacity = 0.3f;
+
+	// UPROPERTY(EditAnywhere, Category = "Health")
+	// TObjectPtr<class UMaterialInterface> DamageMaterial;
+
+	// UPROPERTY()
+	// TObjectPtr<class UMaterialInterface> TmpMaterialSlot;
+
+	void ExchangeMaterial();
 
 	UPROPERTY(EditAnywhere, Category = "UI")
 	class TSubclassOf<class UGameUIUserWidget> GameUIWidgetClass;

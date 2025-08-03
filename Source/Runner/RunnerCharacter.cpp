@@ -16,6 +16,7 @@
 #include "HealthBarWidget.h"
 #include "InputActionValue.h"
 #include "Kismet/GameplayStatics.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Math/UnrealMathUtility.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
@@ -25,6 +26,7 @@
 #include "Public/WorldGenerator.h"
 #include "TimerManager.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/WeakObjectPtrTemplates.h"
 
 DEFINE_LOG_CATEGORY(LogRunnerCharacter);
 
@@ -105,6 +107,7 @@ void ARunnerCharacter::BeginPlay()
 	InitUI();
 
 	GetMesh()->CreateDynamicMaterialInstance(0);
+	TmpMaterialSlot = UMaterialInstanceDynamic::Create(DamageMaterial, this);
 	TActorIterator<AWorldGenerator> It(GetWorld());
 	if (It)
 	{
@@ -180,6 +183,12 @@ void ARunnerCharacter::Tick(float Delta)
 		GameUIWidget->UpdateGas(Mana / MaxMana);
 	}
 
+	CheckEvilChase(Delta);
+	UpdateFlicker(Delta);
+}
+
+void ARunnerCharacter::CheckEvilChase(float Delta)
+{
 	auto TileX = double(WorldGenerator->XCellNumber) * WorldGenerator->CellSize;
 	auto PlayerPos = GetActorLocation().X / TileX;
 	GetMesh()->SetScalarParameterValueOnMaterials("PlayerPos", PlayerPos);
@@ -197,6 +206,26 @@ void ARunnerCharacter::Tick(float Delta)
 			UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::Tick - Taking damage, Evil Pos %f, Player Pos %f"), EvilPos, PlayerPos);
 			CurrentDamageInterval -= DamageInterval;
 			TakeHitImpact(true);
+		}
+	}
+}
+
+void ARunnerCharacter::UpdateFlicker(float Delta)
+{
+	// 在顿帧结束后才会触发 flicker，因此这里的 delta 是世界时间
+	if (bFlicker)
+	{
+		int32 CurrentFlickCount = FMath::FloorToInt(CurrentFlickerTime / FlipInterval);
+		CurrentFlickerTime += Delta;
+		int32 NewFlickCount = FMath::FloorToInt(CurrentFlickerTime / FlipInterval);
+		auto Diff = NewFlickCount - CurrentFlickCount;
+		if ((Diff & 1) == 1)
+		{
+			ExchangeMaterial();
+			if (NewFlickCount >= FlipTime - 1)
+			{
+				bFlicker = false;
+			}
 		}
 	}
 }
@@ -344,6 +373,12 @@ void ARunnerCharacter::InitUI()
 
 void ARunnerCharacter::TakeHitImpact(bool bOnlyUI)
 {
+	// 当处于顿帧或者闪烁状态时，不处理邪气以外的伤害
+	if (!bOnlyUI && (bFlicker || CustomTimeDilation == HitSlomo))
+	{
+		return;
+	}
+
 	if (GameUIWidget)
 	{
 		Health -= HitDamage;
@@ -361,9 +396,18 @@ void ARunnerCharacter::TakeHitImpact(bool bOnlyUI)
 	{
 		CustomTimeDilation = HitSlomo;
 		FTimerHandle TimerHandle;
+
 		// auto RealHitSlomoTime = HitSlomoTime * HitSlomo;
 		// GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { UGameplayStatics::SetGlobalTimeDilation(this, 1.0f); }, RealHitSlomoTime, false);
-		GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { CustomTimeDilation = 1.0f; }, HitSlomoTime, false);
+		GetWorld()->GetTimerManager().SetTimer(TimerHandle, [WeakCharacter = TWeakObjectPtr<ARunnerCharacter>(this)]() { 
+			auto Char = WeakCharacter.Get();
+			if (Char)
+			{
+				Char->CustomTimeDilation = 1.0f; 
+				Char->bFlicker = true;
+				Char->CurrentFlickerTime = 0.0f;
+				Char->ExchangeMaterial();
+			} }, HitSlomoTime, false);
 	}
 	// TODO：播放死亡动画
 	if (Health <= 0.0f && !bInfiniteHealth)
@@ -416,4 +460,15 @@ void ARunnerCharacter::FellOutOfWorld(const class UDamageType& dmgType)
 	{
 		RunnerPC->GameOver(GameUIWidget->GetTotalScore());
 	}
+}
+
+void ARunnerCharacter::ExchangeMaterial()
+{
+	auto MatOpacity = bMaterialFlipped ? 1.0f : Opacity;
+	bMaterialFlipped = !bMaterialFlipped;
+	GetMesh()->SetScalarParameterValueOnMaterials("Opacity", MatOpacity);
+
+	// auto* Mat = GetMesh()->GetMaterial(0);
+	// GetMesh()->SetMaterial(0, TmpMaterialSlot);
+	// TmpMaterialSlot = Mat;
 }
