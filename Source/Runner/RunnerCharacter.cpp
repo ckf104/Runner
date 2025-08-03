@@ -79,24 +79,21 @@ void ARunnerCharacter::BeginPlay()
 		if (Component->GetName().Contains(TEXT("LeftThrust")))
 		{
 			LThrust = Component;
-			LThrust->SetHiddenInGame(true);
 			LThrust->Deactivate();
-			return false; // Stop iterating once we find the LeftThrust component
 		}
-
-		return true; // Continue iterating
-	});
-	ForEachComponent<UNiagaraComponent>(false, [this](UNiagaraComponent* Component) {
 		if (Component->GetName().Contains(TEXT("RightThrust")))
 		{
 			RThrust = Component;
-			RThrust->SetHiddenInGame(true);
 			RThrust->Deactivate();
-			return false; // Stop iterating once we find the RightThrust component
 		}
-
+		else if (Component->GetName().Contains(TEXT("SlowDown")))
+		{
+			SlowDownComp = Component;
+			SlowDownComp->Deactivate();
+		}
 		return true; // Continue iterating
 	});
+
 	ForEachComponent<UPrimitiveComponent>(false, [this](UPrimitiveComponent* Component) {
 		if (Component->ComponentHasTag("Absorb"))
 		{
@@ -107,7 +104,6 @@ void ARunnerCharacter::BeginPlay()
 	InitUI();
 
 	GetMesh()->CreateDynamicMaterialInstance(0);
-	TmpMaterialSlot = UMaterialInstanceDynamic::Create(DamageMaterial, this);
 	TActorIterator<AWorldGenerator> It(GetWorld());
 	if (It)
 	{
@@ -148,9 +144,14 @@ void ARunnerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ARunnerCharacter::Look);
 
-		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Started, this, &ARunnerCharacter::StartThrust);
-		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Completed, this, &ARunnerCharacter::StopThrust);
-		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Canceled, this, &ARunnerCharacter::StopThrust);
+		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Started, this, &ARunnerCharacter::StartThrust, EThrustStatus::UserThrust);
+		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Completed, this, &ARunnerCharacter::StopThrust, EThrustStatus::UserThrust);
+		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Canceled, this, &ARunnerCharacter::StopThrust, EThrustStatus::UserThrust);
+
+		auto* RunnerMoveComp = Cast<URunnerMovementComponent>(GetMovementComponent());
+		EnhancedInputComponent->BindAction(DownAction, ETriggerEvent::Started, RunnerMoveComp, &URunnerMovementComponent::StartDown);
+		EnhancedInputComponent->BindAction(DownAction, ETriggerEvent::Completed, RunnerMoveComp, &URunnerMovementComponent::StopDown);
+		EnhancedInputComponent->BindAction(DownAction, ETriggerEvent::Canceled, RunnerMoveComp, &URunnerMovementComponent::StopDown);
 
 		EnhancedInputComponent->BindActionValue(DownAction);
 		EnhancedInputComponent->BindActionValue(MoveAction);
@@ -172,13 +173,14 @@ void ARunnerCharacter::Tick(float Delta)
 		AddMovementInput(GetActorForwardVector(), 1.0f);
 		// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::Tick called with Delta: %s"), *GetVelocity().ToString());
 	}
-	if (bThrusting)
+
+	if (Thrusting & static_cast<int8>(EThrustStatus::UserThrust))
 	{
 		Mana -= ManaReduceSpeed * Delta;
 		if (Mana <= 0.0f)
 		{
 			Mana = 0.0f;
-			StopThrust();
+			StopThrust(EThrustStatus::UserThrust);
 		}
 		GameUIWidget->UpdateGas(Mana / MaxMana);
 	}
@@ -312,46 +314,78 @@ void ARunnerCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
-void ARunnerCharacter::StartThrust()
+void ARunnerCharacter::StartThrust(EThrustStatus ThrustStatus)
 {
 	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::StartThrust called, Mana: %f"), Mana);
-	if (Mana < MinimumThrustMana)
+	int8 ThrustStatusInt = static_cast<int8>(ThrustStatus);
+	if ((Thrusting & ThrustStatusInt) > 0)
+	{
+		return;
+	}
+	if (Mana <= MinimumThrustMana && ThrustStatus != EThrustStatus::FreeThrust)
 	{
 		return; // Not enough mana to thrust
 	}
-	bThrusting = true;
+	Thrusting |= ThrustStatusInt; // Set the thrusting status
+
 	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
 	MovementComp->StartThrust();
-	if (LThrust)
+
+	// 从 non thrust 切换到 thrust 状态
+	if (LThrust && Thrusting == ThrustStatusInt)
 	{
-		LThrust->SetHiddenInGame(false);
 		LThrust->Activate();
 	}
-	if (RThrust)
+	if (RThrust && Thrusting == ThrustStatusInt)
 	{
-		RThrust->SetHiddenInGame(false);
 		RThrust->Activate();
 	}
 }
 
-void ARunnerCharacter::StopThrust()
+void ARunnerCharacter::StopThrust(EThrustStatus ThrustStatus)
 {
 	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::StopThrust called, Mana: %f"), Mana);
-	if (bThrusting)
+	int8 ThrustStatusInt = static_cast<int8>(ThrustStatus);
+	if ((Thrusting & ThrustStatusInt) == 0)
 	{
-		bThrusting = false;
-		auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
-		MovementComp->StopThrust();
+		return; // Not currently thrusting
+	}
+	Thrusting &= ~ThrustStatusInt; // Clear the thrusting status
+	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+	MovementComp->StopThrust();
+	if (Thrusting == 0)
+	{
 		if (LThrust)
 		{
-			LThrust->SetHiddenInGame(true);
 			LThrust->Deactivate();
 		}
 		if (RThrust)
 		{
-			RThrust->SetHiddenInGame(true);
 			RThrust->Deactivate();
 		}
+	}
+}
+
+void ARunnerCharacter::StartSlowDown()
+{
+	SlowDown++;
+	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+	MovementComp->StartSlowDown();
+	if (SlowDown == 1)
+	{
+		SlowDownComp->Activate();
+	}
+}
+
+void ARunnerCharacter::StopSlowDown()
+{
+	SlowDown--;
+	ensure(SlowDown >= 0);
+	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+	MovementComp->StopSlowDown();
+	if (SlowDown == 0)
+	{
+		SlowDownComp->Deactivate();
 	}
 }
 
@@ -471,4 +505,17 @@ void ARunnerCharacter::ExchangeMaterial()
 	// auto* Mat = GetMesh()->GetMaterial(0);
 	// GetMesh()->SetMaterial(0, TmpMaterialSlot);
 	// TmpMaterialSlot = Mat;
+}
+
+void ARunnerCharacter::AddGas(float Percentage)
+{
+	if (GameUIWidget)
+	{
+		GameUIWidget->AddGas(Percentage);
+		Mana += Percentage * MaxMana;
+		if (Mana > MaxMana)
+		{
+			Mana = MaxMana;
+		}
+	}
 }

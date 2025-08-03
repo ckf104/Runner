@@ -81,7 +81,7 @@ void URunnerMovementComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 	// 移动后更新滑板的旋转
 	UpdateSkateBoardRotation(DeltaTime);
 	InAirTime += DeltaTime;
-	// UE_LOG(LogRunnerMovement, Log, TEXT("Skateboard Velocity Z: %f, Size: %f, ActorLocation: %s"), Velocity.Z, Velocity.Size(), *GetOwner()->GetActorLocation().ToString());
+	UE_LOG(LogRunnerMovement, Log, TEXT("Skateboard Ground Velocity Size: %f, Thrusting: %d, SlowDown: %d, MaxSpeed: %f"), Velocity.Size2D(), Thrusting, SlowDown, GetMaxSpeed());
 }
 
 ELevel URunnerMovementComponent::CalcLandLevel(FRotator TargetRotation) const
@@ -90,33 +90,52 @@ ELevel URunnerMovementComponent::CalcLandLevel(FRotator TargetRotation) const
 	auto CurrentSkateboardRotation = SkateboardMesh->GetComponentRotation();
 	auto DiffPitch = FMath::Abs(CurrentSkateboardRotation.Pitch - TargetRotation.Pitch);
 	auto DiffRoll = FMath::Abs(CurrentSkateboardRotation.Roll - TargetRotation.Roll);
-	if (DiffPitch > BadDiffPitch)
-	{
-		// UE_LOG(LogRunnerMovement, Warning, TEXT("Bad Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
-		// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
-		return ELevel::Bad;
-	}
-	else if (DiffRoll > BadDiffRoll)
-	{
-		// UE_LOG(LogRunnerMovement, Warning, TEXT("Bad Level, Target Roll: %f, Current Roll: %f, Target Pitch: %f, Current Pitch: %f"),
-		// 		TargetRotation.Roll, CurrentSkateboardRotation.Roll, TargetRotation.Pitch, CurrentSkateboardRotation.Pitch);
-		return ELevel::Bad;
-	}
-	else if (DiffPitch <= PerfectDiffPitch && DiffRoll <= PerfectDiffRoll)
-	{
-		// UE_LOG(LogRunnerMovement, Warning, TEXT("Perfect Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
-		// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
-		return ELevel::Perfect;
-	}
-	else if (DiffPitch <= PerfectDiffPitch || DiffRoll <= PerfectDiffRoll)
-	{
-		// UE_LOG(LogRunnerMovement, Warning, TEXT("Good Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
-		// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
-		return ELevel::Good;
-	}
+	// if (DiffPitch > BadDiffPitch)
+	// {
+	// 	// UE_LOG(LogRunnerMovement, Warning, TEXT("Bad Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
+	// 	// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
+	// 	return ELevel::Bad;
+	// }
+	// else if (DiffRoll > BadDiffRoll)
+	// {
+	// 	// UE_LOG(LogRunnerMovement, Warning, TEXT("Bad Level, Target Roll: %f, Current Roll: %f, Target Pitch: %f, Current Pitch: %f"),
+	// 	// 		TargetRotation.Roll, CurrentSkateboardRotation.Roll, TargetRotation.Pitch, CurrentSkateboardRotation.Pitch);
+	// 	return ELevel::Bad;
+	// }
+	// else if (DiffPitch <= PerfectDiffPitch && DiffRoll <= PerfectDiffRoll)
+	// {
+	// 	// UE_LOG(LogRunnerMovement, Warning, TEXT("Perfect Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
+	// 	// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
+	// 	return ELevel::Perfect;
+	// }
+	// else if (DiffPitch <= PerfectDiffPitch || DiffRoll <= PerfectDiffRoll)
+	// {
+	// 	// UE_LOG(LogRunnerMovement, Warning, TEXT("Good Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
+	// 	// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
+	// 	return ELevel::Good;
+	// }
 	// UE_LOG(LogRunnerMovement, Warning, TEXT("Normal Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
 	// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
-	return ELevel::Normal;
+
+	if (DiffRoll <= PerfectDiffRoll)
+	{
+		UE_LOG(LogRunnerMovement, Log, TEXT("Perfect Level, Target Roll: %f, Current Roll: %f"),
+				TargetRotation.Roll, CurrentSkateboardRotation.Roll);
+		return ELevel::Perfect;
+	}
+	else if (DiffRoll >= BadDiffRoll)
+	{
+		UE_LOG(LogRunnerMovement, Warning, TEXT("Bad Level, Target Roll: %f, Current Roll: %f"),
+				TargetRotation.Roll, CurrentSkateboardRotation.Roll);
+		return ELevel::Bad;
+	}
+	else
+	{
+		UE_LOG(LogRunnerMovement, Log, TEXT("Good Level, Target Roll: %f, Current Roll: %f"),
+				TargetRotation.Roll, CurrentSkateboardRotation.Roll);
+		return ELevel::Good;
+	}
+	// return ELevel::Normal;
 }
 
 void URunnerMovementComponent::ProcessLanded(const FHitResult& Hit, float remainingTime, int32 Iterations)
@@ -131,13 +150,60 @@ void URunnerMovementComponent::ProcessLanded(const FHitResult& Hit, float remain
 		if (bAccuracy)
 		{
 			LandLevel = CalcLandLevel(LastTickTargetRotation);
-			Cast<ARunnerCharacter>(GetOwner())->ShowLandUI(LandLevel);
+			// 仅当落到地面上时才处理
+			if (Hit.GetActor() == WorldGenerator)
+			{
+				ProcessLandLevel(LandLevel);
+				Cast<ARunnerCharacter>(GetOwner())->ShowLandUI(LandLevel);
+			}
 		}
 	}
 	InAirTime = 0.0f;
+	StopDown();
 
 	Super::ProcessLanded(Hit, remainingTime, Iterations);
 	// 重置空中时间
+}
+
+void URunnerMovementComponent::ProcessLandLevel(ELevel LandLevel)
+{
+	auto* Runner = Cast<ARunnerCharacter>(GetOwner());
+	if (Runner)
+	{
+		switch (LandLevel)
+		{
+			case ELevel::Perfect:
+			{
+				Runner->AddGas(GasPercentageWhenPerfect);
+				Runner->StartThrust(EThrustStatus::FreeThrust);
+				FTimerHandle ThrustTimerHandle;
+				TWeakObjectPtr<ARunnerCharacter> WeakRunner(Runner);
+				Runner->GetWorld()->GetTimerManager().SetTimer(ThrustTimerHandle, [WeakRunner]() {
+					if (WeakRunner.IsValid())
+					{
+						WeakRunner->StopThrust(EThrustStatus::FreeThrust);
+					} }, PerfectThrustSpeedTime, false);
+			}
+			break;
+			case ELevel::Good:
+				Runner->AddGas(GasPercentageWhenGood);
+				break;
+			case ELevel::Bad:
+			{
+				Runner->StartSlowDown();
+				FTimerHandle SlowDownTimerHandle;
+				TWeakObjectPtr<ARunnerCharacter> WeakRunner(Runner);
+				Runner->GetWorld()->GetTimerManager().SetTimer(SlowDownTimerHandle, [WeakRunner]() {
+					if (WeakRunner.IsValid())
+					{
+						WeakRunner->StopSlowDown();
+					} }, BadReduceSpeedTime, false);
+			}
+			break;
+			default:
+				break;
+		}
+	}
 }
 
 FVector URunnerMovementComponent::NewFallVelocity(const FVector& InitialVelocity, const FVector& Gravity, float DeltaTime) const
@@ -686,6 +752,13 @@ void URunnerMovementComponent::CalcVelocity(float DeltaTime, float Friction, boo
 		Velocity.Y = NewVelocity.Y;
 		// Velocity.Z = NewVelocity.Z;
 	}
+}
+
+float URunnerMovementComponent::GetMaxSpeed() const
+{
+	auto Ret = Thrusting > 0 ? MaxThrustSpeed : MaxWalkSpeed;
+	auto Scale = SlowDown > 0 ? BadReduceSpeedScale : 1.0f;
+	return Ret * Scale;
 }
 
 void URunnerMovementComponent::MoveAlongFloor(const FVector& InVelocity, float DeltaSeconds, FStepDownResult* OutStepDownResult)
@@ -1276,14 +1349,36 @@ void URunnerMovementComponent::PhysFalling2(float deltaTime, int32 Iterations)
 	}
 }
 
-void URunnerMovementComponent::StartThrust()
+// void URunnerMovementComponent::StartThrust()
+// {
+// 	// DefaultMaxWalkingSpeed = MaxWalkSpeed;
+// 	// MaxWalkSpeed = MaxThrustSpeed;
+// 	Thrusting++;
+// 	// TODO：要不要骤变一下速度？
+// }
+
+// void URunnerMovementComponent::StopThrust()
+// {
+// 	// MaxWalkSpeed = DefaultMaxWalkingSpeed;
+// 	Thrusting--;
+// 	ensure(Thrusting >= 0);
+// }
+
+void URunnerMovementComponent::StartDown()
 {
-	DefaultMaxWalkingSpeed = MaxWalkSpeed;
-	MaxWalkSpeed = MaxThrustSpeed;
-	// TODO：要不要骤变一下速度？
+	if (IsFalling() && !bDown)
+	{
+		bDown = true;
+		Velocity.Z = FMath::Max(Velocity.Z - DownReduceZVelocity, MaxZVelocityInAir);
+	}
 }
 
-void URunnerMovementComponent::StopThrust()
+void URunnerMovementComponent::StopDown()
 {
-	MaxWalkSpeed = DefaultMaxWalkingSpeed;
+	if (bDown)
+	{
+		bDown = false;
+		// TODO：要不要恢复速度？
+		// Velocity.Z = FMath::Max(Velocity.Z + DownReduceZVelocity, MaxZVelocityInAir);
+	}
 }

@@ -140,12 +140,39 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float TraceDistanceToFindFloor = 200.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
+	float BadReduceSpeedScale = 0.6f;
+
+	UPROPERTY(EditAnywhere, Category = "Skate Controller")
+	float GasPercentageWhenPerfect = 0.2f;
+
+	UPROPERTY(EditAnywhere, Category = "Skate Controller")
+	float GasPercentageWhenGood = 0.1f;
+
+	// 激活 down 状态时减少 z 方向的速度值
+	UPROPERTY(EditAnywhere, Category = "Skate Controller")
+	float DownReduceZVelocity = 1000.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Skate Controller")
+	float BadReduceSpeedTime = 0.5f;
+
+	UPROPERTY(EditAnywhere, Category = "Skate Controller")
+	float PerfectThrustSpeedTime = 0.5f;
+
 	// 是否使用曲率来判断起飞
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	bool bUseCurvatureForTakeoff = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	bool bUseVisualNormal = true;
+
+	// 滑板有 Down，Thrust，SlowDown 三种状态，Down 状态影响 Z 方向的速度
+	// SlowDown 和 Thrust 状态影响水平方向的速度，三种状态互不干扰，可以同时存在
+	bool bDown = false;
+	
+	// 有多种来源，因此使用 int8 来表示状态
+	int8 Thrusting = false;
+	int8 SlowDown = false;
 
 protected:
 	void BeginPlay() override;
@@ -170,9 +197,15 @@ protected:
 	void ProcessLanded(const FHitResult& Hit, float remainingTime, int32 Iterations) override;
 	FVector NewFallVelocity(const FVector& InitialVelocity, const FVector& Gravity, float DeltaTime) const override;
 
+	float GetMaxSpeed() const override;
+
 public:
-	void StartThrust();
-	void StopThrust();
+	void StartThrust() {Thrusting++; }
+	void StopThrust() { Thrusting--; ensure(Thrusting >= 0); }
+	void StartDown();
+	void StopDown();
+	void StartSlowDown() { SlowDown++; }
+	void StopSlowDown() { SlowDown--; ensure(SlowDown >= 0); }
 	// bool HandleBlockingHit(const FHitResult& Hit);
 
 	void StartFalling(int32 Iterations, float remainingTime, float timeTick, const FVector& Delta, const FVector& subLoc) override;
@@ -204,6 +237,6 @@ private:
 	double CalcStartZVelocity() const;
 
 	ELevel CalcLandLevel(FRotator TargetRotation) const;
-
+	void ProcessLandLevel(ELevel LandLevel);
 
 };

@@ -29,6 +29,7 @@ public:
 	uint32 GetTotalScore() const { return TotalScore; }
 	void UpdateLife(float Percentage);
 	void UpdateGas(float Percentage);
+	void AddGas(float Percentage) { UpdateGas(GasRealPercentage + Percentage); }
 	void UpdateLifeImmediately(float Percentage);
 	void UpdateGasImmediately(float Percentage);
 

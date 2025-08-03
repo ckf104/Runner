@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "HAL/Platform.h"
 #include "Public/RunnerMovementComponent.h"
 #include "Logging/LogMacros.h"
 #include "Templates/SubclassOf.h"
@@ -16,6 +17,12 @@ class UInputAction;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogRunnerCharacter, Log, All);
+
+enum class EThrustStatus : int8
+{
+	FreeThrust = 1,
+	UserThrust = 2
+};
 
 UCLASS(config = Game)
 class ARunnerCharacter : public ACharacter
@@ -79,6 +86,15 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Skate Input")
 	float GetTurnValue() const;
+	
+	void StartThrust(EThrustStatus ThrustStatus);
+	void StopThrust(EThrustStatus ThrustStatus);
+	UFUNCTION(BlueprintCallable)
+	void StartSlowDown();
+	UFUNCTION(BlueprintCallable)
+	void StopSlowDown();
+	void StartDown();
+	void StopDown();
 
 protected:
 	/** Called for movement input */
@@ -89,9 +105,6 @@ protected:
 
 	void Tick(float Delta) override;
 	void TurnDirection(float Delta);
-
-	void StartThrust();
-	void StopThrust();
 
 	void BeginPlay() override;
 
@@ -157,14 +170,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug")
 	bool bInfiniteHealth = false;
 
-	bool bThrusting = false;
-
-	bool bFlicker = false;
+	bool bFlicker = false;  // 当前是否处于无敌状态
 	bool bMaterialFlipped = false;
 
 	float CurrentFlickerTime = 0.0f;
 
 	float CurrentDamageInterval = 0.5f;
+
+	// 是否处于 slow down, thrusting 状态，它们有多种来源
+	// 因此使用 int8 来表示状态
+	int8 Thrusting = 0;
+	int8 SlowDown = 0;
 
 	// UI Settings
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")
@@ -186,16 +202,18 @@ public:
 
 	void ExchangeMaterial();
 
+	void AddGas(float Percentage);
+
 	UPROPERTY(EditAnywhere, Category = "UI")
 	class TSubclassOf<class UGameUIUserWidget> GameUIWidgetClass;
 
 	UPROPERTY()
 	class UGameUIUserWidget* GameUIWidget = nullptr;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
 	class UNiagaraComponent* LThrust;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
 	class UNiagaraComponent* RThrust;
+	class UNiagaraComponent* SlowDownComp;
+
 
 private:
 		class AWorldGenerator* WorldGenerator = nullptr;

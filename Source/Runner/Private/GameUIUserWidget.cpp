@@ -68,6 +68,7 @@ void UGameUIUserWidget::UpdateLifeImmediately(float Percentage)
 
 void UGameUIUserWidget::UpdateGas(float Percentage)
 {
+	Percentage = FMath::Clamp(Percentage, 0.0f, 1.0f);
 	GasRealPercentage = Percentage;
 	FVector3f GasParams = GetParamsPercentage(Percentage);
 	auto GasP0 = GasParams.X;
