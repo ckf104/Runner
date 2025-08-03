@@ -150,7 +150,7 @@ void URunnerMovementComponent::ProcessLanded(const FHitResult& Hit, float remain
 		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
 		if (Runner->IsInMud())
 		{
-			Runner->StartSlowDown();
+			Runner->StartSlowDown(ESlowDownSource::Mud);
 		}
 		if (InAirTime > MinimumAirTime)
 		{
@@ -158,8 +158,9 @@ void URunnerMovementComponent::ProcessLanded(const FHitResult& Hit, float remain
 			if (bAccuracy)
 			{
 				LandLevel = CalcLandLevel(LastTickTargetRotation);
+				PerfectCombo = (LandLevel == ELevel::Perfect) ? PerfectCombo + 1 : 0;
 				ProcessLandLevel(LandLevel);
-				Runner->ShowLandUI(LandLevel);
+				Runner->ShowLandUI(LandLevel, PerfectCombo);
 			}
 		}
 	}
@@ -188,7 +189,7 @@ void URunnerMovementComponent::ProcessLandLevel(ELevel LandLevel)
 				break;
 			case ELevel::Bad:
 			{
-				Runner->StartSlowDown();
+				Runner->StartSlowDown(ESlowDownSource::BadLand);
 				FTimerHandle SlowDownTimerHandle;
 				TWeakObjectPtr<ARunnerCharacter> WeakRunner(Runner);
 				Runner->GetWorld()->GetTimerManager().SetTimer(SlowDownTimerHandle, [WeakRunner]() {
@@ -547,7 +548,7 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
 		if (Runner->IsInMud())
 		{
-			Runner->StartSlowDown();
+			Runner->StartSlowDown(ESlowDownSource::Mud);
 		}
 	}
 

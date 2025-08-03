@@ -17,6 +17,7 @@
 #include "InputActionValue.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Math/Color.h"
 #include "Math/UnrealMathUtility.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
@@ -367,9 +368,17 @@ void ARunnerCharacter::StopThrust(EThrustSource ThrustStatus)
 	}
 }
 
-void ARunnerCharacter::StartSlowDown()
+void ARunnerCharacter::StartSlowDown(ESlowDownSource SlowDownStatus)
 {
 	SlowDown++;
+	if (SlowDownStatus == ESlowDownSource::Mud)
+	{
+		SlowDownComp->SetVariableLinearColor(TEXT("ArrowColor"), FLinearColor(0.06f, 0.06f, 0.06f, 1.0f));
+	}
+	else
+	{
+		SlowDownComp->SetVariableLinearColor(TEXT("ArrowColor"), FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
+	}
 	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
 	MovementComp->StartSlowDown();
 	if (SlowDown == 1)
@@ -515,7 +524,7 @@ void ARunnerCharacter::EnterMud()
 	auto* FloorActor = RunnerMoveComp->CurrentFloor.HitResult.GetActor();
 	if (FloorActor == WorldGenerator && InMud == 1)
 	{
-		StartSlowDown();
+		StartSlowDown(ESlowDownSource::Mud);
 	}
 }
 

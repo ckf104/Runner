@@ -233,9 +233,8 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller", meta = (AllowPrivateAccess = "true"))
 	float DebugDeltaTime = 0.2f;
 
+	int32 PerfectCombo = 0; // 完美落地的连击数
 	float InAirTime = 0.0f;
-
-	float DefaultMaxWalkingSpeed;
 
 	// 上一帧在地面时滑板的目标旋转，用来指示移动方向
 	FRotator LastTickTargetRotation;
@@ -246,5 +245,4 @@ private:
 
 	ELevel CalcLandLevel(FRotator TargetRotation) const;
 	void ProcessLandLevel(ELevel LandLevel);
-
 };

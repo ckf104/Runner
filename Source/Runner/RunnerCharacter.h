@@ -24,6 +24,12 @@ enum class EThrustSource : int8
 	UserThrust = 2
 };
 
+enum class ESlowDownSource : int8
+{
+	Mud = 1,
+	BadLand = 2
+};
+
 UCLASS(config = Game)
 class ARunnerCharacter : public ACharacter
 {
@@ -96,7 +102,7 @@ public:
 	
 	void StartThrust(EThrustSource ThrustStatus, float ThrustTime);
 	void StopThrust(EThrustSource ThrustStatus);
-	void StartSlowDown();
+	void StartSlowDown(ESlowDownSource SlowDownStatus);
 	void StopSlowDown();
 	void StartDown();
 	void StopDown();
@@ -197,7 +203,7 @@ public:
 
 	// UI Settings
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")
-	void ShowLandUI(ELevel LandLevel);
+	void ShowLandUI(ELevel LandLevel, int32 PerfectComboNumber);
 
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")
 	void ShowDamageUI(bool bOnlyUI);
