@@ -127,7 +127,15 @@ public:
 
 	// 碰撞到物体后的忽略该物体的时间
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
-	float IgnoreTime;
+	float IgnoreTime = 1.0f;
+
+	// 起飞的阈值
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
+	float TakeoffThreshold = 800.0f;
+
+	// 是否使用曲率来判断起飞
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
+	bool bUseCurvatureForTakeoff = true;
 
 protected:
 	void BeginPlay() override;
@@ -136,6 +144,8 @@ protected:
 	void PhysWalking(float deltaTime, int32 Iterations) override;
 	void CalcVelocity(float DeltaTime, float Friction, bool bFluid, float BrakingDeceleration) override;
 	void PhysWalking2(float deltaTime, int32 Iterations);
+	void PhysFalling(float deltaTime, int32 Iterations) override;
+	void PhysFalling2(float deltaTime, int32 Iterations);
 
 	void UpdateSkateBoardRotation(float DeltaTime);
 	float UpdateRollInAir(float DeltaTime, float CurrentRoll, float DownValue) const;

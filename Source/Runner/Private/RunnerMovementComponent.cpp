@@ -20,6 +20,7 @@
 #include "WorldGenerator.h"
 
 DECLARE_CYCLE_STAT(TEXT("Skateboard PhysWalking"), STAT_SkateboardPhysWalking, STATGROUP_Character);
+DECLARE_CYCLE_STAT(TEXT("Skateboard PhysFalling"), STAT_SkateboardPhysFalling, STATGROUP_Character);
 
 // Defines for build configs
 #if DO_CHECK && !UE_BUILD_SHIPPING // Disable even if checks in shipping are enabled.
@@ -377,9 +378,43 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 	auto NewNormal = NewFloor.HitResult.ImpactNormal;
 
 	auto VelocityDir = Velocity.GetSafeNormal();
+
+	auto GroundVdir = Velocity.GetSafeNormal2D();
+	auto Delta = WorldGenerator->CellSize;
+	// auto CurrentPos =
+
+	auto TanNew = FVector::VectorPlaneProject(VelocityDir, OldNormal);
+	auto TanOld = FVector::VectorPlaneProject(VelocityDir, NewNormal);
+
+	// 计算一阶导数
+	auto SizeNew = TanNew.Size2D();
+	auto dNew = SizeNew != 0.0 ? TanNew.Z / SizeNew : 0.0;
+	auto SizeOld = TanOld.Size2D();
+	auto dOld = SizeOld != 0.0 ? TanOld.Z / SizeOld : 0.0;
+
+	auto GroundNew = FVector(NewFloor.HitResult.ImpactPoint.X, NewFloor.HitResult.ImpactPoint.Y, 0.0);
+	auto GroundOld = FVector(OldFloor.HitResult.ImpactPoint.X, OldFloor.HitResult.ImpactPoint.Y, 0.0);
+	auto DeltaDis = (GroundNew - GroundOld).Size2D();
+
+	// 二阶导数
+	auto dd = DeltaDis > 0.0 ? (dNew - dOld) / DeltaDis : 0.0;
+
+	auto Length = FMath::Pow(1 + dNew * dNew, 1.5);
+	auto Curvature = dd / Length;
+
+	auto VelocitySize = Velocity.Size2D();
+	// UE_LOG(LogTemp, Warning, TEXT("Pos: %s, TanNew: %s, TanOld: %s, dNew: %lf, dOld: %lf, dd: %lf, Length: %lf, Curvature: %lf"), *GroundNew.ToString(), *TanNew.ToString(), *TanOld.ToString(), dNew, dOld, dd, Length, Curvature * VelocitySize * VelocitySize);
+
 	auto OldDot = FVector::DotProduct(OldNormal, VelocityDir);
 	auto NewDot = FVector::DotProduct(NewNormal, VelocityDir);
-	if (NewDot - OldDot >= DeltaNormalThreshold)
+
+	if (bUseCurvatureForTakeoff && Curvature * VelocitySize * VelocitySize > TakeoffThreshold)
+	{
+		InAirTime = 0.0f; // 重置空中时间
+		Velocity.Z = CalcStartZVelocity();
+		return true;
+	}
+	else if (!bUseCurvatureForTakeoff && (NewDot - OldDot) >= DeltaNormalThreshold)
 	{
 		// UE_LOG(LogTemp, Warning, TEXT("ShouldCatchAir: OldDot: %f, NewDot: %f, Delta: %f"), OldDot, NewDot, NewDot - OldDot);
 		InAirTime = 0.0f; // 重置空中时间
@@ -796,6 +831,216 @@ void URunnerMovementComponent::PhysWalking2(float deltaTime, int32 Iterations)
 }
 
 #undef devCode
+
+void URunnerMovementComponent::PhysFalling(float deltaTime, int32 Iterations)
+{
+	// Super::PhysFalling(deltaTime, Iterations);
+	PhysFalling2(deltaTime, Iterations);
+}
+
+void URunnerMovementComponent::PhysFalling2(float deltaTime, int32 Iterations)
+{
+	SCOPE_CYCLE_COUNTER(STAT_SkateboardPhysFalling);
+
+	if (deltaTime < MIN_TICK_TIME)
+	{
+		return;
+	}
+
+	const FVector FallAcceleration = ProjectToGravityFloor(GetFallingLateralAcceleration(deltaTime));
+	const bool bHasLimitedAirControl = ShouldLimitAirControl(deltaTime, FallAcceleration);
+
+	float remainingTime = deltaTime;
+	while ((remainingTime >= MIN_TICK_TIME) && (Iterations < MaxSimulationIterations))
+	{
+		Iterations++;
+		float timeTick = GetSimulationTimeStep(remainingTime, Iterations);
+		remainingTime -= timeTick;
+
+		const FVector OldLocation = UpdatedComponent->GetComponentLocation();
+		const FQuat PawnRotation = UpdatedComponent->GetComponentQuat();
+		bJustTeleported = false;
+
+		const FVector OldVelocityWithRootMotion = Velocity;
+
+		RestorePreAdditiveRootMotionVelocity();
+
+		const FVector OldVelocity = Velocity;
+
+		// Apply input
+		const float MaxDecel = GetMaxBrakingDeceleration();
+		if (!HasAnimRootMotion() && !CurrentRootMotion.HasOverrideVelocity())
+		{
+			// Compute Velocity
+			{
+				// Acceleration = FallAcceleration for CalcVelocity(), but we restore it after using it.
+				TGuardValue<FVector> RestoreAcceleration(Acceleration, FallAcceleration);
+				if (HasCustomGravity())
+				{
+					Velocity = ProjectToGravityFloor(Velocity);
+					const FVector GravityRelativeOffset = OldVelocity - Velocity;
+					CalcVelocity(timeTick, FallingLateralFriction, false, MaxDecel);
+					Velocity += GravityRelativeOffset;
+				}
+				else
+				{
+					Velocity.Z = 0.f;
+					CalcVelocity(timeTick, FallingLateralFriction, false, MaxDecel);
+					Velocity.Z = OldVelocity.Z;
+				}
+			}
+		}
+
+		// Compute current gravity
+		const FVector Gravity = -GetGravityDirection() * GetGravityZ();
+		float GravityTime = timeTick;
+
+		// If jump is providing force, gravity may be affected.
+		bool bEndingJumpForce = false;
+		if (CharacterOwner->JumpForceTimeRemaining > 0.0f)
+		{
+			// Consume some of the force time. Only the remaining time (if any) is affected by gravity when bApplyGravityWhileJumping=false.
+			const float JumpForceTime = FMath::Min(CharacterOwner->JumpForceTimeRemaining, timeTick);
+			GravityTime = bApplyGravityWhileJumping ? timeTick : FMath::Max(0.0f, timeTick - JumpForceTime);
+
+			// Update Character state
+			CharacterOwner->JumpForceTimeRemaining -= JumpForceTime;
+			if (CharacterOwner->JumpForceTimeRemaining <= 0.0f)
+			{
+				CharacterOwner->ResetJumpState();
+				bEndingJumpForce = true;
+			}
+		}
+
+		// Apply gravity
+		Velocity = NewFallVelocity(Velocity, Gravity, GravityTime);
+
+		// UE_LOG(LogCharacterMovement, Log, TEXT("dt=(%.6f) OldLocation=(%s) OldVelocity=(%s) OldVelocityWithRootMotion=(%s) NewVelocity=(%s)"), timeTick, *(UpdatedComponent->GetComponentLocation()).ToString(), *OldVelocity.ToString(), *OldVelocityWithRootMotion.ToString(), *Velocity.ToString());
+		ApplyRootMotionToVelocity(timeTick);
+		DecayFormerBaseVelocity(timeTick);
+
+		// See if we need to sub-step to exactly reach the apex. This is important for avoiding "cutting off the top" of the trajectory as framerate varies.
+		const FVector::FReal GravityRelativeOldVelocityWithRootMotionZ = GetGravitySpaceZ(OldVelocityWithRootMotion);
+		if (GravityRelativeOldVelocityWithRootMotionZ > 0.f && GetGravitySpaceZ(Velocity) <= 0.f && NumJumpApexAttempts < MaxJumpApexAttemptsPerSimulation)
+		{
+			const FVector DerivedAccel = (Velocity - OldVelocityWithRootMotion) / timeTick;
+			const FVector::FReal GravityRelativeDerivedAccelZ = GetGravitySpaceZ(DerivedAccel);
+			if (!FMath::IsNearlyZero(GravityRelativeDerivedAccelZ))
+			{
+				const float TimeToApex = -GravityRelativeOldVelocityWithRootMotionZ / GravityRelativeDerivedAccelZ;
+
+				// The time-to-apex calculation should be precise, and we want to avoid adding a substep when we are basically already at the apex from the previous iteration's work.
+				const float ApexTimeMinimum = 0.0001f;
+				if (TimeToApex >= ApexTimeMinimum && TimeToApex < timeTick)
+				{
+					const FVector ApexVelocity = OldVelocityWithRootMotion + (DerivedAccel * TimeToApex);
+					if (HasCustomGravity())
+					{
+						Velocity = ProjectToGravityFloor(ApexVelocity); // Should be nearly zero anyway, but this makes apex notifications consistent.
+					}
+					else
+					{
+						Velocity = ApexVelocity;
+						Velocity.Z = 0.f; // Should be nearly zero anyway, but this makes apex notifications consistent.
+					}
+
+					// We only want to move the amount of time it takes to reach the apex, and refund the unused time for next iteration.
+					const float TimeToRefund = (timeTick - TimeToApex);
+
+					remainingTime += TimeToRefund;
+					timeTick = TimeToApex;
+					Iterations--;
+					NumJumpApexAttempts++;
+
+					// Refund time to any active Root Motion Sources as well
+					for (TSharedPtr<FRootMotionSource> RootMotionSource : CurrentRootMotion.RootMotionSources)
+					{
+						const float RewoundRMSTime = FMath::Max(0.0f, RootMotionSource->GetTime() - TimeToRefund);
+						RootMotionSource->SetTime(RewoundRMSTime);
+					}
+				}
+			}
+		}
+
+		if (bNotifyApex && (GetGravitySpaceZ(Velocity) < 0.f))
+		{
+			// Just passed jump apex since now going down
+			bNotifyApex = false;
+			NotifyJumpApex();
+		}
+
+		// Compute change in position (using midpoint integration method).
+		FVector Adjusted = 0.5f * (OldVelocityWithRootMotion + Velocity) * timeTick;
+
+		// Special handling if ending the jump force where we didn't apply gravity during the jump.
+		if (bEndingJumpForce && !bApplyGravityWhileJumping)
+		{
+			// We had a portion of the time at constant speed then a portion with acceleration due to gravity.
+			// Account for that here with a more correct change in position.
+			const float NonGravityTime = FMath::Max(0.f, timeTick - GravityTime);
+			Adjusted = (OldVelocityWithRootMotion * NonGravityTime) + (0.5f * (OldVelocityWithRootMotion + Velocity) * GravityTime);
+		}
+
+		// Move
+		FHitResult Hit(1.f);
+		SafeMoveUpdatedComponent(Adjusted, PawnRotation, true, Hit);
+
+		if (!HasValidData())
+		{
+			return;
+		}
+
+		float LastMoveTimeSlice = timeTick;
+		float subTimeTickRemaining = timeTick * (1.f - Hit.Time);
+
+		if (Hit.bBlockingHit)
+		{
+			if (IsValidLandingSpot(UpdatedComponent->GetComponentLocation(), Hit))
+			{
+				remainingTime += subTimeTickRemaining;
+				ProcessLanded(Hit, remainingTime, Iterations);
+				return;
+			}
+			else
+			{
+				// Compute impact deflection based on final velocity, not integration step.
+				// This allows us to compute a new velocity from the deflected vector, and ensures the full gravity effect is included in the slide result.
+				Adjusted = Velocity * timeTick;
+
+				// See if we can convert a normally invalid landing spot (based on the hit result) to a usable one.
+				if (!Hit.bStartPenetrating && ShouldCheckForValidLandingSpot(timeTick, Adjusted, Hit))
+				{
+					const FVector PawnLocation = UpdatedComponent->GetComponentLocation();
+					FFindFloorResult FloorResult;
+					FindFloor(PawnLocation, FloorResult, false);
+
+					// Note that we only care about capsule sweep floor results, since the line trace may detect a lower walkable surface that our falling capsule wouldn't actually reach yet.
+					if (!FloorResult.bLineTrace && FloorResult.IsWalkableFloor() && IsValidLandingSpot(PawnLocation, FloorResult.HitResult))
+					{
+						remainingTime += subTimeTickRemaining;
+						ProcessLanded(FloorResult.HitResult, remainingTime, Iterations);
+						return;
+					}
+				}
+
+				HandleImpact(Hit, LastMoveTimeSlice, Adjusted);
+
+				// If we've changed physics mode, abort.
+				if (!HasValidData() || !IsFalling())
+				{
+					return;
+				}
+				remainingTime += subTimeTickRemaining;
+			}
+		}
+
+		const FVector GravityProjectedVelocity = ProjectToGravityFloor(Velocity);
+		if (GravityProjectedVelocity.SizeSquared() <= UE_KINDA_SMALL_NUMBER * 10.f)
+		{
+			Velocity = GetGravitySpaceComponentZ(Velocity);
+		}
+	}
+}
 
 void URunnerMovementComponent::StartThrust()
 {

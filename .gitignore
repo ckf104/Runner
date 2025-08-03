@@ -1,3 +1,8 @@
-*
+/*
+!/Plugins
+/Plugins/*
+!/Plugins/SimpleHealthBar
+/Plugins/SimpleHealthBar/*
+!/Plugins/SimpleHealthBar/Source
 !/Source
 !.gitignore
