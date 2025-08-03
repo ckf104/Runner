@@ -98,6 +98,7 @@ public:
 
 	// TrianglesBuffer 仅在 begin play 时被填充一次，之后只读
 	TArray<int32> TrianglesBuffer;
+	TArray<FVector2D> UV1Buffer;
 
 	// 在此之前的属性都是在运行时只读的，也允许其它线程访问
 
@@ -232,6 +233,22 @@ private:
 
 	void DebugPrint() const;
 
+	// 邪气追赶逻辑
+public:
+	UPROPERTY(EditAnywhere, Category = "Evil Chase")
+	TObjectPtr<class UMaterialParameterCollection> EvilChaseMaterialCollection;
+
+	UPROPERTY(EditAnywhere, Category = "Evil Chase")
+	float EvilChaseSpeed = 1800.0f;
+
+	double GetEvilPos() { return EvilPos; }
+
+private:
+	void UpdateEvilPos(float DeltaTime);
+
+	double EvilPos;
+
+	// 多线程数据
 private:
 	struct alignas(64) TaskBuffer
 	{
@@ -255,7 +272,7 @@ private:
 	void GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray<RandomPoint>& RandomPoints);
 
 	// 各种数学函数测试
-	using DistanceFuncType = bool(*)(FVector2D, FVector2D, double);
+	using DistanceFuncType = bool (*)(FVector2D, FVector2D, double);
 	// 欧式距离
 	static bool EuclideanDistance(FVector2D A, FVector2D B, double MinDistance)
 	{
@@ -275,16 +292,16 @@ private:
 	{
 		switch (Func)
 		{
-		case EDistanceFunc::Euclidean:
-			return EuclideanDistance;
-		case EDistanceFunc::Xaxis:
-			return XaxisDistance;
-		case EDistanceFunc::Yaxis:
-			return YaxisDistance;
-		default:
-			return EuclideanDistance; // 默认使用欧式距离
+			case EDistanceFunc::Euclidean:
+				return EuclideanDistance;
+			case EDistanceFunc::Xaxis:
+				return XaxisDistance;
+			case EDistanceFunc::Yaxis:
+				return YaxisDistance;
+			default:
+				return EuclideanDistance; // 默认使用欧式距离
 		}
-	} 
+	}
 
 	template <class T>
 	static int32 PoissonSampling(double XSize, double YSize, double MinDistance, int32 SampleCountBeforeReject, std::mt19937_64& RandomEngine, T DistLambda, TArray<FVector2D>& OutPoints);

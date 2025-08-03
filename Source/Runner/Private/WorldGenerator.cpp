@@ -14,8 +14,12 @@
 #include "GameFramework/Character.h"
 #include "HAL/Platform.h"
 #include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetMaterialLibrary.h"
 #include "KismetProceduralMeshLibrary.h"
 #include "KismetTraceUtils.h"
+#include "Materials/MaterialInstanceConstant.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 #include "Math/Color.h"
 #include "Math/MathFwd.h"
 #include "Misc/AssertionMacros.h"
@@ -92,6 +96,17 @@ void AWorldGenerator::BeginPlay()
 	SortBarrierSpawners();
 	// SpawnBarrierSpawners();
 
+	// Set EvilPos to minimum double
+	// EvilPos = TNumericLimits<double>::Lowest();
+	EvilPos = 0.0;
+	// float MatTextureSize, MaxMatTextureCoords, MatTileSize;
+	// TileMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo("TextureSize"), MatTextureSize);
+	// TileMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo("MaxTexCoords"), MaxMatTextureCoords);
+	// TileMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo("TileSize"), MatTileSize);
+	// ensure(MatTileSize == float(CellSize) * XCellNumber);
+	// ensure(MatTextureSize == TextureSize.X);
+	// ensure(MaxMatTextureCoords == MaxTextureCoords);
+
 	Super::BeginPlay();
 }
 
@@ -139,10 +154,24 @@ void AWorldGenerator::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 	GenerateNewTiles();
 
+	UpdateEvilPos(DeltaTime);
+
 	if (bDebugMode)
 	{
 		DebugPrint();
 	}
+}
+
+void AWorldGenerator::UpdateEvilPos(float DeltaTime)
+{
+	auto PlayerTile = GetPlayerTile();
+	auto TileSizeX = CellSize * XCellNumber;
+
+	auto MinPos = double(TileSizeX) * (PlayerTile.X - 1);
+	auto NewEvilPos = EvilPos + (EvilChaseSpeed * DeltaTime);
+	EvilPos = FMath::Max(MinPos, NewEvilPos);
+
+	UKismetMaterialLibrary::SetScalarParameterValue(this, EvilChaseMaterialCollection, "EvilPos", float(EvilPos / TileSizeX));
 }
 
 void AWorldGenerator::DebugPrint() const
@@ -321,6 +350,15 @@ void AWorldGenerator::InitDataBuffer()
 			TrianglesBuffer[Index + 5] = ((Y + 1) * (XCellNumber + 1)) + X;
 		}
 	}
+	UV1Buffer.SetNumUninitialized((XCellNumber + 1) * (YCellNumber + 1));
+	for (int32 Y = 0; Y <= YCellNumber; ++Y)
+	{
+		for (int32 X = 0; X <= XCellNumber; ++X)
+		{
+			int32 Index = (Y * (XCellNumber + 1)) + X;
+			UV1Buffer[Index] = FVector2D(X / double(XCellNumber), Y / double(YCellNumber));
+		}
+	}
 }
 
 int32 AWorldGenerator::FindReplaceableSection(int32 PMCIndex)
@@ -488,16 +526,26 @@ void AWorldGenerator::CreateMeshFromTileData()
 			if (SectionIdx == -1)
 			{
 				// Create a new section
-				PMC->CreateMeshSection(TileMap[PMCIndex].Num(), VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, TArray<FColor>(), TangentsBuffer, true);
-				PMC->SetMaterial(TileMap[PMCIndex].Num(), TileMaterial);
+				PMC->CreateMeshSection(TileMap[PMCIndex].Num(), VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, UV1Buffer, TArray<FVector2D>(), TArray<FVector2D>(), TArray<FColor>(), TangentsBuffer, true);
+				auto* DynamicMat = UMaterialInstanceDynamic::Create(TileMaterial, this, NAME_None);
+				if (DynamicMat)
+				{
+					DynamicMat->SetScalarParameterValue("TileX", Tile.X);
+				}
+				PMC->SetMaterial(TileMap[PMCIndex].Num(), DynamicMat);
 				SectionIdx = TileMap[PMCIndex].Add(Tile);
 			}
 			else
 			{
 				// Update the existing section
+				auto* DynamicMat = Cast<UMaterialInstanceDynamic>(PMC->GetMaterial(SectionIdx));
+				if (DynamicMat)
+				{
+					DynamicMat->SetScalarParameterValue("TileX", Tile.X);
+				}
 				PMC->ClearMeshSection(SectionIdx);
-				PMC->CreateMeshSection(SectionIdx, VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, TArray<FColor>(), TangentsBuffer, true);
-				PMC->SetMaterial(SectionIdx, TileMaterial);
+				PMC->CreateMeshSection(SectionIdx, VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, UV1Buffer, TArray<FVector2D>(), TArray<FVector2D>(), TArray<FColor>(), TangentsBuffer, true);
+				PMC->SetMaterial(SectionIdx, DynamicMat);
 				auto OldTile = TileMap[PMCIndex][SectionIdx];
 				// 通知 BarrierSpawner 移除旧的 tile 上的障碍物
 				for (ABarrierSpawner* BarrierSpawner : BarrierSpawners)
@@ -1061,7 +1109,7 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray
 			RandomPoints[i].Rotation = Rotation;
 			RandomPoints[i].Scale = FVector(1.0, 1.0, 1.0); // 设置默认缩放
 		}
-		
+
 		if (bCheckPoissonSampling)
 		{
 			for (int32 i = OldPosCnt; i < OldPosCnt + RealTotalBarrierCount; ++i)
@@ -1230,7 +1278,7 @@ void AWorldGenerator::OnConstruction(const FTransform& Transform)
 	auto SectionIdx = FindReplaceableSection(PMCIndex);
 
 	// Create a new section
-	PMC->CreateMeshSection(TileMap[PMCIndex].Num(), VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, TArray<FColor>(), TangentsBuffer, true);
+	PMC->CreateMeshSection(TileMap[PMCIndex].Num(), VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, UV1Buffer, TArray<FVector2D>(), TArray<FVector2D>(), TArray<FColor>(), TangentsBuffer, true);
 	PMC->SetMaterial(TileMap[PMCIndex].Num(), TileMaterial);
 }
 

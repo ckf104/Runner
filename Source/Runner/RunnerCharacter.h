@@ -60,7 +60,7 @@ class ARunnerCharacter : public ACharacter
 public:
 	ARunnerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
-	void TakeHitImpact();
+	void TakeHitImpact(bool bOnlyUI);
 	void NotifyActorBeginOverlap(AActor* OtherActor) override;
 	void NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit) override;
 
@@ -136,14 +136,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
 	float HitSlomoTime = 0.5f;
 
+	// 当 evil 领先这个距离时触发伤害逻辑
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evil Chase")
+	float DeltaTakeDamge = 0.1f;
+
+	// 触发伤害的间隔时间
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evil Chase")
+	float DamageInterval = 1.0f; 
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug")
+	bool bInfiniteHealth = false;
+
 	bool bThrusting = false;
+
+	float CurrentDamageInterval = 0.5f;
 
 	// UI Settings
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")
 	void ShowLandUI(ELevel LandLevel);
 
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")
-	void ShowDamageUI();
+	void ShowDamageUI(bool bOnlyUI);
 
 	void InitUI();
 
@@ -157,4 +170,7 @@ public:
 	class UNiagaraComponent* LThrust;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
 	class UNiagaraComponent* RThrust;
+
+private:
+		class AWorldGenerator* WorldGenerator = nullptr;
 };

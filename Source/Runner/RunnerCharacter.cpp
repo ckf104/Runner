@@ -99,11 +99,17 @@ void ARunnerCharacter::BeginPlay()
 		if (Component->ComponentHasTag("Absorb"))
 		{
 			Component->OnComponentBeginOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlap);
-			
 		}
 	});
 	GetCapsuleComponent()->OnComponentBeginOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlap);
 	InitUI();
+
+	GetMesh()->CreateDynamicMaterialInstance(0);
+	TActorIterator<AWorldGenerator> It(GetWorld());
+	if (It)
+	{
+		WorldGenerator = *It;
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -172,6 +178,26 @@ void ARunnerCharacter::Tick(float Delta)
 			StopThrust();
 		}
 		GameUIWidget->UpdateGas(Mana / MaxMana);
+	}
+
+	auto TileX = double(WorldGenerator->XCellNumber) * WorldGenerator->CellSize;
+	auto PlayerPos = GetActorLocation().X / TileX;
+	GetMesh()->SetScalarParameterValueOnMaterials("PlayerPos", PlayerPos);
+	auto EvilPos = WorldGenerator->GetEvilPos();
+
+	if (EvilPos / TileX - PlayerPos < DeltaTakeDamge)
+	{
+		CurrentDamageInterval = 0.5f;
+	}
+	else
+	{
+		CurrentDamageInterval += Delta;
+		if (CurrentDamageInterval >= DamageInterval)
+		{
+			UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::Tick - Taking damage, Evil Pos %f, Player Pos %f"), EvilPos, PlayerPos);
+			CurrentDamageInterval -= DamageInterval;
+			TakeHitImpact(true);
+		}
 	}
 }
 
@@ -316,7 +342,7 @@ void ARunnerCharacter::InitUI()
 	}
 }
 
-void ARunnerCharacter::TakeHitImpact()
+void ARunnerCharacter::TakeHitImpact(bool bOnlyUI)
 {
 	if (GameUIWidget)
 	{
@@ -329,16 +355,18 @@ void ARunnerCharacter::TakeHitImpact()
 		}
 		GameUIWidget->UpdateLife(Health / MaxHealth);
 	}
-	ShowDamageUI();
+	ShowDamageUI(bOnlyUI);
 	// UGameplayStatics::SetGlobalTimeDilation(this, HitSlomo);
-	CustomTimeDilation = HitSlomo;
-	FTimerHandle TimerHandle;
-	// auto RealHitSlomoTime = HitSlomoTime * HitSlomo;
-	// GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { UGameplayStatics::SetGlobalTimeDilation(this, 1.0f); }, RealHitSlomoTime, false);
-	GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { CustomTimeDilation = 1.0f; }, HitSlomoTime, false);
-
+	if (!bOnlyUI)
+	{
+		CustomTimeDilation = HitSlomo;
+		FTimerHandle TimerHandle;
+		// auto RealHitSlomoTime = HitSlomoTime * HitSlomo;
+		// GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { UGameplayStatics::SetGlobalTimeDilation(this, 1.0f); }, RealHitSlomoTime, false);
+		GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { CustomTimeDilation = 1.0f; }, HitSlomoTime, false);
+	}
 	// TODO：播放死亡动画
-	if (Health <= 0.0f)
+	if (Health <= 0.0f && !bInfiniteHealth)
 	{
 		auto* RunnerPC = Cast<ARunnerControllerBase>(GetController());
 		RunnerPC->GameOver(GameUIWidget->GetTotalScore());
@@ -375,7 +403,7 @@ void ARunnerCharacter::DealBarrierOverlap(UPrimitiveComponent* OverlappedCompone
 	}
 	else
 	{
-		TakeHitImpact();
+		TakeHitImpact(false);
 	}
 }
 

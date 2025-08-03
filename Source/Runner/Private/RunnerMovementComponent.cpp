@@ -375,62 +375,62 @@ void URunnerMovementComponent::HandleImpact(const FHitResult& Hit, float LastMov
 	// HandleBlockingHit(Hit);
 }
 
-bool URunnerMovementComponent::HandleBlockingHit(const FHitResult& Hit)
-{
-	auto bWalkable = IsWalkable(Hit);
-	if (!bWalkable)
-	{
-		auto* HitComponent = Hit.GetComponent();
-		if (HitComponent)
-		{
-			// UE_LOG(LogRunnerMovement, Warning, TEXT("URunnerMovementComponent::HandleImpact: Hit Object %s!"), *HitComponent->GetName());
-			auto* ISM = Cast<UInstancedStaticMeshComponent>(HitComponent);
-			if (ISM)
-			{
-				auto* BI = ISM->GetBodyInstance(FName(), true, Hit.Item);
-				if (BI->GetResponseToChannel(ECC_Pawn) == ECR_Block)
-				{
-					BI->SetResponseToChannel(ECC_Pawn, ECR_Ignore);
-					// Restore the collision response after IgnoreTime
-					FTimerHandle Handle;
-					TWeakObjectPtr<UInstancedStaticMeshComponent> WeakISM = ISM;
-					GetWorld()->GetTimerManager().SetTimer(
-							Handle, [WeakISM, HitItem = Hit.Item]() {
-								auto ISM = WeakISM.Get();
-								if (ISM)
-								{
-									auto* BI = ISM->GetBodyInstance(FName(), true, HitItem);
-									BI->SetResponseToChannel(ECC_Pawn, ECR_Block);
-								}
-							},
-							IgnoreTime, false);
-					Cast<ARunnerCharacter>(GetOwner())->TakeHitImpact();
-				}
-			}
-			// 碰撞到的是普通的 Primitive Component
-			else
-			{
-				if (HitComponent->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Block)
-				{
-					HitComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
-					TWeakObjectPtr<UPrimitiveComponent> WeakComponent = HitComponent;
-					FTimerHandle Handle;
-					GetWorld()->GetTimerManager().SetTimer(
-							Handle, [WeakComponent]() {
-								if (WeakComponent.IsValid())
-								{
-									WeakComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-								}
-							},
-							IgnoreTime, false);
-					Cast<ARunnerCharacter>(GetOwner())->TakeHitImpact();
-				}
-			}
-		}
-	}
-	// 返回 true 表示这是一个需要处理的阻挡碰撞
-	return !bWalkable;
-}
+// bool URunnerMovementComponent::HandleBlockingHit(const FHitResult& Hit)
+// {
+// 	auto bWalkable = IsWalkable(Hit);
+// 	if (!bWalkable)
+// 	{
+// 		auto* HitComponent = Hit.GetComponent();
+// 		if (HitComponent)
+// 		{
+// 			// UE_LOG(LogRunnerMovement, Warning, TEXT("URunnerMovementComponent::HandleImpact: Hit Object %s!"), *HitComponent->GetName());
+// 			auto* ISM = Cast<UInstancedStaticMeshComponent>(HitComponent);
+// 			if (ISM)
+// 			{
+// 				auto* BI = ISM->GetBodyInstance(FName(), true, Hit.Item);
+// 				if (BI->GetResponseToChannel(ECC_Pawn) == ECR_Block)
+// 				{
+// 					BI->SetResponseToChannel(ECC_Pawn, ECR_Ignore);
+// 					// Restore the collision response after IgnoreTime
+// 					FTimerHandle Handle;
+// 					TWeakObjectPtr<UInstancedStaticMeshComponent> WeakISM = ISM;
+// 					GetWorld()->GetTimerManager().SetTimer(
+// 							Handle, [WeakISM, HitItem = Hit.Item]() {
+// 								auto ISM = WeakISM.Get();
+// 								if (ISM)
+// 								{
+// 									auto* BI = ISM->GetBodyInstance(FName(), true, HitItem);
+// 									BI->SetResponseToChannel(ECC_Pawn, ECR_Block);
+// 								}
+// 							},
+// 							IgnoreTime, false);
+// 					Cast<ARunnerCharacter>(GetOwner())->TakeHitImpact();
+// 				}
+// 			}
+// 			// 碰撞到的是普通的 Primitive Component
+// 			else
+// 			{
+// 				if (HitComponent->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Block)
+// 				{
+// 					HitComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+// 					TWeakObjectPtr<UPrimitiveComponent> WeakComponent = HitComponent;
+// 					FTimerHandle Handle;
+// 					GetWorld()->GetTimerManager().SetTimer(
+// 							Handle, [WeakComponent]() {
+// 								if (WeakComponent.IsValid())
+// 								{
+// 									WeakComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+// 								}
+// 							},
+// 							IgnoreTime, false);
+// 					Cast<ARunnerCharacter>(GetOwner())->TakeHitImpact();
+// 				}
+// 			}
+// 		}
+// 	}
+// 	// 返回 true 表示这是一个需要处理的阻挡碰撞
+// 	return !bWalkable;
+// }
 
 bool URunnerMovementComponent::CheckFall(const FFindFloorResult& OldFloor, const FHitResult& Hit, const FVector& Delta, const FVector& OldLocation, float remainingTime, float timeTick, int32 Iterations, bool bMustJump)
 {

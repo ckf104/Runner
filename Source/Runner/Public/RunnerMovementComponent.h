@@ -173,7 +173,7 @@ protected:
 public:
 	void StartThrust();
 	void StopThrust();
-	bool HandleBlockingHit(const FHitResult& Hit);
+	// bool HandleBlockingHit(const FHitResult& Hit);
 
 	void StartFalling(int32 Iterations, float remainingTime, float timeTick, const FVector& Delta, const FVector& subLoc) override;
 	bool CheckFall(const FFindFloorResult& OldFloor, const FHitResult& Hit, const FVector& Delta, const FVector& OldLocation, float remainingTime, float timeTick, int32 Iterations, bool bMustJump) override;
