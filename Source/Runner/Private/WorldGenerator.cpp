@@ -5,7 +5,9 @@
 #include "Async/Async.h"
 #include "Async/TaskGraphInterfaces.h"
 #include "BarrierSpawner.h"
+#include "Containers/AllowShrinking.h"
 #include "Containers/Array.h"
+#include "Containers/ArrayView.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "HAL/Platform.h"
@@ -248,6 +250,7 @@ void AWorldGenerator::InitDataBuffer()
 		TaskDataBuffers[i].NormalsBuffer.SetNumUninitialized((XCellNumber + 1) * (YCellNumber + 1));
 		TaskDataBuffers[i].UV0Buffer.SetNumUninitialized((XCellNumber + 1) * (YCellNumber + 1));
 		TaskDataBuffers[i].TangentsBuffer.SetNumUninitialized((XCellNumber + 1) * (YCellNumber + 1));
+		TaskDataBuffers[i].BarriersCount.SetNumUninitialized(BarrierSpawners.Num());
 	}
 
 	TrianglesBuffer.SetNumUninitialized(XCellNumber * YCellNumber * 6);
@@ -373,6 +376,7 @@ void AWorldGenerator::CreateMeshFromTileData()
 			auto& UV0Buffer = TaskData.UV0Buffer;
 			auto& TangentsBuffer = TaskData.TangentsBuffer;
 			auto& RandomPoints = TaskData.RandomPoints;
+			auto& BarriersCount = TaskData.BarriersCount;
 
 			auto Tile = TilesInBuilding[i];
 			auto TestPos = FVector2D(Tile.X * CellSize * XCellNumber + (CellSize * XCellNumber / 2.0),
@@ -407,10 +411,13 @@ void AWorldGenerator::CreateMeshFromTileData()
 				TileMap[PMCIndex][SectionIdx] = Tile;
 			}
 			auto NewTile = TileMap[PMCIndex][SectionIdx];
-			if (BarrierSpawners.Num() > 0)
+			int32 StartIdx = 0;
+			for (int32 Idx = 0, TotalBarrier = BarrierSpawners.Num(); Idx < TotalBarrier; ++Idx)
 			{
-				// Spawn barriers using the first available barrier spawner
-				BarrierSpawners[0]->SpawnBarriers(RandomPoints, NewTile, this);
+				int32 BarCount = BarriersCount[Idx];
+				TArrayView<RandomPoint> RandomPointsView(&RandomPoints[StartIdx], BarCount);
+				BarrierSpawners[Idx]->SpawnBarriers(RandomPointsView, NewTile, this);
+				StartIdx += BarCount;
 			}
 
 			BufferStateGameThreadOnly[i] = EBufferState::Idle; // Reset the buffer state
@@ -519,13 +526,13 @@ void AWorldGenerator::GenerateNewTiles()
 	}
 }
 
-int32 AWorldGenerator::GetBarrierCountForTileAnyThread(FInt32Point Tile) const
-{
-	int64 Seed = ((int64)Tile.X << 32) | (int64)Tile.Y;
-	std::hash<int64> Int64Hash;
-	auto HashValue = Int64Hash(Seed) % (MaxBarrierCount - MinBarrierCount + 1) + MinBarrierCount;
-	return (int32)HashValue;
-}
+// int32 AWorldGenerator::GetBarrierCountForTileAnyThread(FInt32Point Tile) const
+// {
+// 	int64 Seed = ((int64)Tile.X << 32) | (int64)Tile.Y;
+// 	std::hash<int64> Int64Hash;
+// 	auto HashValue = Int64Hash(Seed) % (MaxBarrierCount - MinBarrierCount + 1) + MinBarrierCount;
+// 	return (int32)HashValue;
+// }
 
 FInt32Point AWorldGenerator::GetTileFromHorizontalPos(FVector2D Pos) const
 {
@@ -612,6 +619,13 @@ double AWorldGenerator::GetHeightFromHorizontalPos(FVector2D Pos) const
 	return WorldPos.Z; // 返回高度
 }
 
+void AWorldGenerator::TransformUVToWorldPos(RandomPoint& Point, FInt32Point Tile) const
+{
+	auto UVPos = Point.Transform.GetLocation();
+	auto WorldPos = GetWorldPositionFromUV(FVector2D(UVPos), Tile);
+	Point.Transform.SetTranslation(WorldPos);
+}
+
 void AWorldGenerator::GenerateOneTileAsync(int32 BufferIndex, FInt32Point Tile, FVector2D PositionOffset)
 {
 	// 在这里执行异步生成逻辑
@@ -646,18 +660,30 @@ void AWorldGenerator::GenerateOneTileAsync(int32 BufferIndex, FInt32Point Tile, 
 
 void AWorldGenerator::GenerateRandomPointsAsync(int32 BufferIndex, FInt32Point Tile, TArray<RandomPoint>& RandomPoints)
 {
-	auto BarrierCount = GetBarrierCountForTileAnyThread(Tile);
 	int64 Seed = ((int64)Tile.X << 32) | (int64)Tile.Y;
 	TaskDataBuffers[BufferIndex].RandomEngine.seed(Seed);
-	RandomPoints.SetNumUninitialized(BarrierCount);
-
 	std::uniform_real_distribution<double> PointGenerator(0.0, 1.0);
-	for (int32 i = 0; i < BarrierCount; ++i)
+
+	int32 Idx = 0;
+	int32 TotalBarrierCount = 0;
+	for (ABarrierSpawner* Spawner : BarrierSpawners)
+	{
+		int32 BarCount = Spawner->GetBarrierCountAnyThread(PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine));
+		TaskDataBuffers[BufferIndex].BarriersCount[Idx] = BarCount; // 记录每个 Spawner 的障碍物数量
+		TotalBarrierCount += BarCount;
+		++Idx;
+	}
+	RandomPoints.SetNumUninitialized(TotalBarrierCount, EAllowShrinking::No);
+
+	for (int32 i = 0; i < TotalBarrierCount; ++i)
 	{
 		auto& Point = RandomPoints[i];
-		Point.Position.X = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
-		Point.Position.Y = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
-		Point.Size = 1.0f;
+		auto UVPos = FVector::ZeroVector;
+		UVPos.X = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
+		UVPos.Y = PointGenerator(TaskDataBuffers[BufferIndex].RandomEngine);
+		Point.Transform.SetTranslation(UVPos);
+		Point.Transform.SetRotation(FRotator::ZeroRotator.Quaternion()); // 设置默认旋转
+		Point.Transform.SetScale3D(FVector(1.0, 1.0, 1.0));							 // 设置默认缩放
 	}
 }
 
@@ -711,7 +737,7 @@ void AWorldGenerator::GenerateGaussian2D(TArray<FVector>& Vertices) const
 	UE_LOG(LogTemp, Warning, TEXT("Max Z value in Gaussian distribution: %f"), MaxZ);
 }
 
-#ifdef WITH_EDITOR
+#if WITH_EDITOR
 void AWorldGenerator::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);

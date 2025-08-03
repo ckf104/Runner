@@ -21,6 +21,7 @@ protected:
 
 public:	
 
-	virtual void SpawnBarriers(const TArray<RandomPoint>& Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) {};
+	virtual void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) {};
 	virtual void RemoveTile(FInt32Point Tile) {};	
+	virtual int32 GetBarrierCountAnyThread(double RandomValue) const { return 10; }
 };

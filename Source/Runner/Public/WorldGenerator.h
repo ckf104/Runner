@@ -14,8 +14,8 @@
 
 struct RandomPoint
 {
-	FVector2D Position;
-	double Size;
+	// position 是包含 UV 坐标
+	FTransform Transform;
 };
 
 UENUM()
@@ -54,11 +54,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	int32 YCellNumber = 50;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
-	int32 MinBarrierCount = 30;
+	// 由每个 barrier 类自己决定生成多少个障碍物
+	// UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
+	// int32 MinBarrierCount = 30;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
-	int32 MaxBarrierCount = 60;
+	// UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
+	// int32 MaxBarrierCount = 60;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	double MaxTextureCoords = 2000.0;
@@ -139,7 +140,7 @@ public:
 	double GetHeightFromPerlinAnyThread(FVector2D Pos, FInt32Point CellPos) const;
 
 	// 该函数可以从任意线程中调用
-	int32 GetBarrierCountForTileAnyThread(FInt32Point Tile) const;
+	// int32 GetBarrierCountForTileAnyThread(FInt32Point Tile, int32 BarrierIndex, double RandomValue) const;
 
 	FInt32Point GetRegionFromHorizontalPos(FVector2D Pos) const
 	{
@@ -156,6 +157,8 @@ public:
 	double GetHeightFromHorizontalPos(FVector2D Pos) const;
 	FVector GetWorldPositionFromUV(FVector2D UV, FInt32Point Tile) const;
 	int32 GetTriangleFromUV(FVector2D UV, FVector2D& BarycentricCoords) const;
+
+	void TransformUVToWorldPos(RandomPoint& Point, FInt32Point Tile) const;
 
 	void OnConstruction(const FTransform& Transform) override;
 
@@ -192,6 +195,7 @@ private:
 	struct alignas(64) TaskBuffer
 	{
 		TArray<RandomPoint> RandomPoints; // 用于存储生成的随机点
+		TArray<int32> BarriersCount; // 存储每个 Barrier Spawner 生成的障碍物数量
 		TArray<FVector> VerticesBuffer;
 		TArray<FVector> NormalsBuffer;
 		TArray<FVector2D> UV0Buffer;

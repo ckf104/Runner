@@ -15,7 +15,7 @@ class RUNNER_API ADebugBoxSpawner : public ABarrierSpawner
 	GENERATED_BODY()
 
 public:
-		void SpawnBarriers(const TArray<RandomPoint>& Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
+		void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
 	
 	
 };

@@ -20,11 +20,18 @@ class RUNNER_API AISMBarrierSpawner : public ABarrierSpawner
 public:
 	AISMBarrierSpawner();
 
-	void SpawnBarriers(const TArray<RandomPoint>& Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
+	void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
 	void RemoveTile(FInt32Point Tile) override;
+	int32 GetBarrierCountAnyThread(double RandomValue) const override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
 	UInstancedStaticMeshComponent* ISMComponent;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
+	int32 MinBarrierCount = 30; // 最小障碍物数量
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
+	int32 MaxBarrierCount = 60; // 最大障碍物数量
 
 private:
 	// 每个 tile 上的静态网格体实例编号

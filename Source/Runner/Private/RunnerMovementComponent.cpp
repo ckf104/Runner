@@ -17,6 +17,7 @@
 #include "Math/UnrealMathUtility.h"
 #include "Runner/RunnerCharacter.h"
 #include "TimerManager.h"
+#include "UObject/WeakObjectPtrTemplates.h"
 #include "WorldGenerator.h"
 
 DECLARE_CYCLE_STAT(TEXT("Skateboard PhysWalking"), STAT_SkateboardPhysWalking, STATGROUP_Character);
@@ -354,11 +355,29 @@ void URunnerMovementComponent::HandleImpact(const FHitResult& Hit, float LastMov
 				BI->SetResponseToChannel(ECC_Pawn, ECR_Ignore);
 				// Restore the collision response after IgnoreTime
 				FTimerHandle Handle;
+				TWeakObjectPtr<UInstancedStaticMeshComponent> WeakISM = ISM;
 				GetWorld()->GetTimerManager().SetTimer(
-						Handle, [BI]() {
-							if (BI)
+						Handle, [WeakISM, HitItem = Hit.Item]() {
+							auto ISM = WeakISM.Get();
+							if (ISM)
 							{
+								auto* BI = ISM->GetBodyInstance(FName(), true, HitItem);
 								BI->SetResponseToChannel(ECC_Pawn, ECR_Block);
+							}
+						},
+						IgnoreTime, false);
+			}
+			// 碰撞到的是普通的 Primitive Component
+			else
+			{
+				HitComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+				TWeakObjectPtr<UPrimitiveComponent> WeakComponent = HitComponent;
+				FTimerHandle Handle;
+				GetWorld()->GetTimerManager().SetTimer(
+						Handle, [WeakComponent]() {
+							if (WeakComponent.IsValid())
+							{
+								WeakComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 							}
 						},
 						IgnoreTime, false);
