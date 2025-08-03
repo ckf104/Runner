@@ -30,49 +30,66 @@ public:
 	// Sets default values for this actor's properties
 	AWorldGenerator();
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	TObjectPtr<class UMaterialInterface> TileMaterial;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	TArray<TObjectPtr<class ABarrierSpawner>> BarrierSpawners; // 存储生成的障碍物生成器实例
 
 	// 一个方格的大小
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	float CellSize = 200.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	int32 XCellNumber = 50;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	int32 YCellNumber = 50;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	int32 MinBarrierCount = 30;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	int32 MaxBarrierCount = 60;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	double MaxTextureCoords = 2000.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	double RegionSize = 40000.0;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	FVector2D TextureSize = FVector2D(1024.0f, 1024.0f);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	TArray<float> PerlinFreq;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	TArray<float> PerlinAmplitude;
+
+	// TrianglesBuffer 仅在 begin play 时被填充一次，之后只读
+	TArray<int32> TrianglesBuffer;
+
+	// 在此之前的属性都是在运行时只读的，也允许其它线程访问
+
+	enum class EBufferState : int8
+	{
+		Idle,
+		Busy,
+		Completed
+	};
+	// 仅允许 game 线程访问!
+	EBufferState BufferStateGameThreadOnly[MaxThreadCount] = { EBufferState::Idle };
+	FGraphEventRef AsyncTaskRef[MaxThreadCount]; // 异步任务引用
+	FInt32Point TilesInBuilding[MaxThreadCount]; // 每个线程的偏移量
 
 	UPROPERTY(VisibleAnywhere, Category = "World Generation")
 	mutable TObjectPtr<class UProceduralMeshComponent> ProceduralMeshComp[MaxRegionCount];
 
 protected:
 	// Called when the game starts or when spawned
-	virtual void BeginPlay() override;
+	void BeginPlay() override;
+	void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	void InitDataBuffer();
 	// void SpawnBarrierSpawners();
 
@@ -100,15 +117,21 @@ public:
 
 	// 寻找一个可以替换的 section, 如果没有找到则返回 -1
 	int32 FindReplaceableSection(int32 PMCIndex);
-	void GenerateOneTile(int32 X, int32 Y);
+
+	// 发起一个异步任务来生成 tile 数据
+	bool GenerateOneTile(FInt32Point Tile);
+	void CreateMeshFromTileData();
 	// 根据当前玩家的位置生成新的 tiles
 	void GenerateNewTiles();
 
-	FVector2D GetUVFromPos(FVector Position) const;
-	double GetHeightFromPerlin(FVector2D Pos, FInt32Point CellPos) const;
+	// 该函数可以从任意线程中调用
+	FVector2D GetUVFromPosAnyThread(FVector Position) const;
 
-	TArray<RandomPoint> GenerateRandomPoints(FInt32Point Tile);
-	int32 GetBarrierCountForTile(FInt32Point Tile) const;
+	// 该函数可以从任意线程中调用
+	double GetHeightFromPerlinAnyThread(FVector2D Pos, FInt32Point CellPos) const;
+
+	// 该函数可以从任意线程中调用
+	int32 GetBarrierCountForTileAnyThread(FInt32Point Tile) const;
 
 	FInt32Point GetRegionFromHorizontalPos(FVector2D Pos) const
 	{
@@ -129,29 +152,19 @@ public:
 private:
 	mutable TArray<FInt32Point> TileMap[MaxRegionCount]; // 用于存储生成的方格位置
 
-	struct TaskBuffer
-	{
-		TArray<FVector> VerticesBuffer;
-		TArray<FVector> NormalsBuffer;
-		TArray<FVector2D> UV0Buffer;
-		TArray<FProcMeshTangent> TangentsBuffer;
-	}; 
-	TaskBuffer TaskDataBuffers[MaxThreadCount];
+	// TArray<FVector> VerticesBuffer;
+	// TArray<FVector> NormalsBuffer;
+	// TArray<FVector2D> UV0Buffer;
+	// TArray<FProcMeshTangent> TangentsBuffer;
 
-	TArray<FVector> VerticesBuffer;
-	TArray<int32> TrianglesBuffer;
-	TArray<FVector> NormalsBuffer;
-	TArray<FVector2D> UV0Buffer;
-	TArray<FProcMeshTangent> TangentsBuffer;
-
-	std::mt19937_64 RandomEngine;													 // 随机数引擎
-	std::uniform_real_distribution<double> PointGenerator; // 用于生成随机大小的分布
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "World Generation", meta = (AllowPrivateAccess = "true"))
+	bool bOneLineMode = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	bool bDebugMode = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
-	FVector2D UVOffset = FVector2D(0.0f, 0.0f); // 用于调试 UV 偏移
+	// UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
+	// FVector2D UVOffset = FVector2D(0.0f, 0.0f); // 用于调试 UV 偏移
 
 	mutable int64 VersionNumber[MaxRegionCount]; // 对应每个 Region 的版本号
 	mutable int64 CurrentVersionIndex = 0;
@@ -159,5 +172,27 @@ private:
 	void DebugPrint() const;
 
 private:
-	static void GenerateOneTileAsync(int32 BufferIndex);
+	struct alignas(64) TaskBuffer
+	{
+		TArray<RandomPoint> RandomPoints; // 用于存储生成的随机点
+		TArray<FVector> VerticesBuffer;
+		TArray<FVector> NormalsBuffer;
+		TArray<FVector2D> UV0Buffer;
+		TArray<FProcMeshTangent> TangentsBuffer;
+		// 这玩意怎么这么大，是否有必要每个线程一个？
+		std::mt19937_64 RandomEngine; // 随机数引擎
+	};
+	// TaskDataBuffers 用于存储每个线程的任务数据, 64 Bytes 对齐
+	TaskBuffer TaskDataBuffers[MaxThreadCount];
+	// 在异步线程中执行
+	void GenerateOneTileAsync(int32 BufferIndex, FInt32Point Tile, FVector2D PositionOffset);
+	void GenerateRandomPointsAsync(int32 BufferIndex, FInt32Point Tile, TArray<RandomPoint>& RandomPoints);
+
+	// 各种数学函测试
+	// 二维高斯分布
+	//
+	double Gaussian2D(double X, double Y, double SigmaX, double SigmaY) const
+	{
+		return (1.0 / (2.0 * PI * SigmaX * SigmaY)) * FMath::Exp(-(X * X / (2.0 * SigmaX * SigmaX) + Y * Y / (2.0 * SigmaY * SigmaY)));
+	}
 };

@@ -51,13 +51,8 @@ void AISMBarrierSpawner::SpawnBarriers(const TArray<RandomPoint>& Positions, FIn
   TileInstanceIndices.Add(Tile, InstanceIndices);
 }
 
-void AISMBarrierSpawner::RemoveTile(FInt32Point Tile, AWorldGenerator* WorldGenerator)
+void AISMBarrierSpawner::RemoveTile(FInt32Point Tile)
 {
-  if (!ISMComponent || !WorldGenerator)
-  {
-    return;
-  }
-
   auto InstanceIndices = TileInstanceIndices.Find(Tile);
   if (InstanceIndices)
   {

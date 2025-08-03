@@ -21,7 +21,7 @@ public:
 	AISMBarrierSpawner();
 
 	void SpawnBarriers(const TArray<RandomPoint>& Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
-	void RemoveTile(FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
+	void RemoveTile(FInt32Point Tile) override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Barrier Spawner")
 	UInstancedStaticMeshComponent* ISMComponent;
