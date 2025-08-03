@@ -19,12 +19,14 @@
 #include "Math/UnrealMathUtility.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
+#include "Public/GameUIUserWidget.h"
+#include "Public/RunnerControllerBase.h"
 #include "Public/RunnerMovementComponent.h"
 #include "Public/WorldGenerator.h"
 #include "TimerManager.h"
 #include "UObject/UObjectGlobals.h"
 
-DEFINE_LOG_CATEGORY(LogTemplateCharacter);
+DEFINE_LOG_CATEGORY(LogRunnerCharacter);
 
 //////////////////////////////////////////////////////////////////////////
 // ARunnerCharacter
@@ -139,13 +141,14 @@ void ARunnerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Started, this, &ARunnerCharacter::StartThrust);
 		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Completed, this, &ARunnerCharacter::StopThrust);
+		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Canceled, this, &ARunnerCharacter::StopThrust);
 
 		EnhancedInputComponent->BindActionValue(DownAction);
 		EnhancedInputComponent->BindActionValue(MoveAction);
 	}
 	else
 	{
-		UE_LOG(LogTemplateCharacter, Error, TEXT("'%s' Failed to find an Enhanced Input component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
+		// UE_LOG(LogRunnerCharacter, Error, TEXT("'%s' Failed to find an Enhanced Input component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
 	}
 }
 
@@ -158,7 +161,7 @@ void ARunnerCharacter::Tick(float Delta)
 	if (bAutoMove)
 	{
 		AddMovementInput(GetActorForwardVector(), 1.0f);
-		// UE_LOG(LogTemplateCharacter, Log, TEXT("ARunnerCharacter::Tick called with Delta: %s"), *GetVelocity().ToString());
+		// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::Tick called with Delta: %s"), *GetVelocity().ToString());
 	}
 	if (bThrusting)
 	{
@@ -168,7 +171,7 @@ void ARunnerCharacter::Tick(float Delta)
 			Mana = 0.0f;
 			StopThrust();
 		}
-		ManaBarWidget->SetCurrentValue(Mana);
+		GameUIWidget->UpdateGas(Mana / MaxMana);
 	}
 }
 
@@ -256,7 +259,7 @@ void ARunnerCharacter::Look(const FInputActionValue& Value)
 
 void ARunnerCharacter::StartThrust()
 {
-	UE_LOG(LogTemplateCharacter, Log, TEXT("ARunnerCharacter::StartThrust called, Mana: %f"), Mana);
+	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::StartThrust called, Mana: %f"), Mana);
 	if (Mana < MinimumThrustMana)
 	{
 		return; // Not enough mana to thrust
@@ -278,7 +281,7 @@ void ARunnerCharacter::StartThrust()
 
 void ARunnerCharacter::StopThrust()
 {
-	UE_LOG(LogTemplateCharacter, Log, TEXT("ARunnerCharacter::StopThrust called, Mana: %f"), Mana);
+	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::StopThrust called, Mana: %f"), Mana);
 	if (bThrusting)
 	{
 		bThrusting = false;
@@ -299,41 +302,32 @@ void ARunnerCharacter::StopThrust()
 
 void ARunnerCharacter::InitUI()
 {
-	if (HealthBarWidgetClass)
+	if (GameUIWidgetClass)
 	{
-		HealthBarWidget = CreateWidget<UHealthBarWidget>(GetWorld(), HealthBarWidgetClass);
-		if (HealthBarWidget)
+		GameUIWidget = CreateWidget<UGameUIUserWidget>(GetWorld(), GameUIWidgetClass);
+		if (GameUIWidget)
 		{
-			HealthBarWidget->AddToViewport();
+			GameUIWidget->AddToViewport();
 			Health = MaxHealth;
-			HealthBarWidget->SetMaxAndCurrentValues(MaxHealth, Health);
+			Mana = MaxMana * InitialManaScale;
 		}
-	}
-
-	if (ManaBarWidgetClass)
-	{
-		ManaBarWidget = CreateWidget<UHealthBarWidget>(GetWorld(), ManaBarWidgetClass);
-		if (ManaBarWidget)
-		{
-			ManaBarWidget->AddToViewport();
-			Mana = MaxMana;
-			ManaBarWidget->SetMaxAndCurrentValues(MaxMana, Mana);
-		}
+		GameUIWidget->UpdateLifeImmediately(1.0f);
+		GameUIWidget->UpdateGasImmediately(InitialManaScale);
 	}
 }
 
 void ARunnerCharacter::TakeHitImpact()
 {
-	if (HealthBarWidget)
+	if (GameUIWidget)
 	{
 		Health -= HitDamage;
 		if (Health <= 0.0f)
 		{
 			Health = 0.0f;
 			// Handle character death
-			UE_LOG(LogTemplateCharacter, Warning, TEXT("Character has died!"));
+			// UE_LOG(LogRunnerCharacter, Warning, TEXT("Character has died!"));
 		}
-		HealthBarWidget->SetCurrentValue(Health);
+		GameUIWidget->UpdateLife(Health / MaxHealth);
 	}
 	ShowDamageUI();
 	// UGameplayStatics::SetGlobalTimeDilation(this, HitSlomo);
@@ -342,6 +336,13 @@ void ARunnerCharacter::TakeHitImpact()
 	// auto RealHitSlomoTime = HitSlomoTime * HitSlomo;
 	// GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { UGameplayStatics::SetGlobalTimeDilation(this, 1.0f); }, RealHitSlomoTime, false);
 	GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]() { CustomTimeDilation = 1.0f; }, HitSlomoTime, false);
+
+	// TODO：播放死亡动画
+	if (Health <= 0.0f)
+	{
+		auto* RunnerPC = Cast<ARunnerControllerBase>(GetController());
+		RunnerPC->GameOver(GameUIWidget->GetTotalScore());
+	}
 }
 
 // defered movement update 中会检查 collision channel 是否仍然为 block!
@@ -352,7 +353,7 @@ void ARunnerCharacter::NotifyHit(class UPrimitiveComponent* MyComp, AActor* Othe
 	// auto bBlockingHit = Cast<URunnerMovementComponent>(GetMovementComponent())->HandleBlockingHit(Hit);
 	// if (bBlockingHit)
 	// {
-	// 	UE_LOG(LogTemplateCharacter, Warning, TEXT("ARunnerCharacter::NotifyHit: %s Blocking Hit %s"), *MyComp->GetName(), *OtherComp->GetName());
+	// 	UE_LOG(LogRunnerCharacter, Warning, TEXT("ARunnerCharacter::NotifyHit: %s Blocking Hit %s"), *MyComp->GetName(), *OtherComp->GetName());
 	// 	TakeHitImpact();
 	// }
 }
@@ -361,7 +362,7 @@ void ARunnerCharacter::NotifyActorBeginOverlap(AActor* OtherActor)
 {
 	Super::NotifyActorBeginOverlap(OtherActor);
 	// TakeHitImpact();
-	// UE_LOG(LogTemplateCharacter, Warning, TEXT("ARunnerCharacter::NotifyActorBeginOverlap: %s"), *OtherActor->GetName());
+	// UE_LOG(LogRunnerCharacter, Warning, TEXT("ARunnerCharacter::NotifyActorBeginOverlap: %s"), *OtherActor->GetName());
 }
 
 void ARunnerCharacter::DealBarrierOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
@@ -370,10 +371,21 @@ void ARunnerCharacter::DealBarrierOverlap(UPrimitiveComponent* OverlappedCompone
 {
 	if (OtherComp->ComponentHasTag("GoldCoin"))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("ARunnerCharacter::DealBarrierOverlap: Get Coin %d"), OtherBodyIndex);
+		// UE_LOG(LogRunnerCharacter, Warning, TEXT("ARunnerCharacter::DealBarrierOverlap: Get Coin %d"), OtherBodyIndex);
 	}
 	else
 	{
 		TakeHitImpact();
+	}
+}
+
+void ARunnerCharacter::FellOutOfWorld(const class UDamageType& dmgType)
+{
+	auto* RunnerPC = Cast<ARunnerControllerBase>(GetController());
+	Super::FellOutOfWorld(dmgType);
+	// TODO：播放一个死亡特效？
+	if (RunnerPC)
+	{
+		RunnerPC->GameOver(GameUIWidget->GetTotalScore());
 	}
 }

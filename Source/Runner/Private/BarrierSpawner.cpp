@@ -5,6 +5,8 @@
 #include "Math/UnrealMathUtility.h"
 #include "WorldGenerator.h"
 
+DEFINE_LOG_CATEGORY(LogBarrierSpawner);
+
 // Sets default values
 ABarrierSpawner::ABarrierSpawner()
 {

@@ -21,9 +21,6 @@ public:
 	TArray<TObjectPtr<class UInstancedStaticMeshComponent>> ISMComponents;
 
 	UPROPERTY(EditAnywhere, Category = "Cluster Spawner")
-	FName CollisionProfileName = TEXT("BlockAll");
-
-	UPROPERTY(EditAnywhere, Category = "Cluster Spawner")
 	int32 MinMeshCountInCluster = 1; // 每个 cluster 中最少的 mesh 数量
 
 	UPROPERTY(EditAnywhere, Category = "Cluster Spawner")

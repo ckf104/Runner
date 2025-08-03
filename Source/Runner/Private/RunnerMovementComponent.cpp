@@ -25,6 +25,8 @@ DECLARE_CYCLE_STAT(TEXT("Skateboard PhysWalking"), STAT_SkateboardPhysWalking, S
 DECLARE_CYCLE_STAT(TEXT("Skateboard PhysFalling"), STAT_SkateboardPhysFalling, STATGROUP_Character);
 DECLARE_CYCLE_STAT(TEXT("Skateboard AdjustFloorHeight"), STAT_SkateboardAdjustFloorHeight, STATGROUP_Character);
 
+DEFINE_LOG_CATEGORY_STATIC(LogRunnerMovement, Log, All);
+
 // Defines for build configs
 #if DO_CHECK && !UE_BUILD_SHIPPING // Disable even if checks in shipping are enabled.
 	#define devCode(Code) checkCode(Code)
@@ -55,7 +57,7 @@ void URunnerMovementComponent::BeginPlay()
 
 	if (!SkateboardMesh)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent: SkateboardMesh not found!"));
+		// UE_LOG(LogRunnerMovement, Warning, TEXT("URunnerMovementComponent: SkateboardMesh not found!"));
 	}
 
 	TActorIterator<AWorldGenerator> It(GetWorld());
@@ -69,7 +71,7 @@ void URunnerMovementComponent::BeginPlay()
 	}
 	if (!WorldGenerator)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("ARunnerCharacter: WorldGenerator not found!"));
+		// UE_LOG(LogRunnerMovement, Warning, TEXT("ARunnerCharacter: WorldGenerator not found!"));
 	}
 }
 
@@ -79,7 +81,7 @@ void URunnerMovementComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 	// 移动后更新滑板的旋转
 	UpdateSkateBoardRotation(DeltaTime);
 	InAirTime += DeltaTime;
-	// UE_LOG(LogTemp, Log, TEXT("Skateboard Velocity Z: %f, Size: %f, ActorLocation: %s"), Velocity.Z, Velocity.Size(), *GetOwner()->GetActorLocation().ToString());
+	// UE_LOG(LogRunnerMovement, Log, TEXT("Skateboard Velocity Z: %f, Size: %f, ActorLocation: %s"), Velocity.Z, Velocity.Size(), *GetOwner()->GetActorLocation().ToString());
 }
 
 ELevel URunnerMovementComponent::CalcLandLevel(FRotator TargetRotation) const
@@ -90,30 +92,30 @@ ELevel URunnerMovementComponent::CalcLandLevel(FRotator TargetRotation) const
 	auto DiffRoll = FMath::Abs(CurrentSkateboardRotation.Roll - TargetRotation.Roll);
 	if (DiffPitch > BadDiffPitch)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Bad Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
-				TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
+		// UE_LOG(LogRunnerMovement, Warning, TEXT("Bad Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
+		// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
 		return ELevel::Bad;
 	}
 	else if (DiffRoll > BadDiffRoll)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Bad Level, Target Roll: %f, Current Roll: %f, Target Pitch: %f, Current Pitch: %f"),
-				TargetRotation.Roll, CurrentSkateboardRotation.Roll, TargetRotation.Pitch, CurrentSkateboardRotation.Pitch);
+		// UE_LOG(LogRunnerMovement, Warning, TEXT("Bad Level, Target Roll: %f, Current Roll: %f, Target Pitch: %f, Current Pitch: %f"),
+		// 		TargetRotation.Roll, CurrentSkateboardRotation.Roll, TargetRotation.Pitch, CurrentSkateboardRotation.Pitch);
 		return ELevel::Bad;
 	}
 	else if (DiffPitch <= PerfectDiffPitch && DiffRoll <= PerfectDiffRoll)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Perfect Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
-				TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
+		// UE_LOG(LogRunnerMovement, Warning, TEXT("Perfect Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
+		// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
 		return ELevel::Perfect;
 	}
 	else if (DiffPitch <= PerfectDiffPitch || DiffRoll <= PerfectDiffRoll)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Good Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
-				TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
+		// UE_LOG(LogRunnerMovement, Warning, TEXT("Good Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
+		// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
 		return ELevel::Good;
 	}
-	UE_LOG(LogTemp, Warning, TEXT("Normal Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
-			TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
+	// UE_LOG(LogRunnerMovement, Warning, TEXT("Normal Level, Target Pitch: %f, Current Pitch: %f, Target Roll: %f, Current Roll: %f"),
+	// 		TargetRotation.Pitch, CurrentSkateboardRotation.Pitch, TargetRotation.Roll, CurrentSkateboardRotation.Roll);
 	return ELevel::Normal;
 }
 
@@ -207,22 +209,22 @@ FRotator URunnerMovementComponent::CalcWakingTargetRotation(bool& bAccuracy) con
 		// {
 		// 	if (BWWSPos.Z - GroundHeightInBW >= SkateboardTraceDistance)
 		// 	{
-		// 		UE_LOG(LogTemp, Warning, TEXT("Back Wheel Too High! BW Z Pos: %f, GroundHeight: %f"),
+		// 		UE_LOG(LogRunnerMovement, Warning, TEXT("Back Wheel Too High! BW Z Pos: %f, GroundHeight: %f"),
 		// 				BWWSPos.Z, GroundHeightInBW);
 		// 	}
 		// 	else
 		// 	{
-		// 		UE_LOG(LogTemp, Log, TEXT("Back Wheel OK BW Z Pos: %f, GroundHeight: %f"),
+		// 		UE_LOG(LogRunnerMovement, Log, TEXT("Back Wheel OK BW Z Pos: %f, GroundHeight: %f"),
 		// 				BWWSPos.Z, GroundHeightInBW);
 		// 	}
 		// 	if (FWWSPos.Z - GroundHeightInFW >= SkateboardTraceDistance)
 		// 	{
-		// 		UE_LOG(LogTemp, Warning, TEXT("Front Wheel Too High! FW Z Pos: %f, GroundHeight: %f"),
+		// 		UE_LOG(LogRunnerMovement, Warning, TEXT("Front Wheel Too High! FW Z Pos: %f, GroundHeight: %f"),
 		// 				FWWSPos.Z, GroundHeightInFW);
 		// 	}
 		// 	else
 		// 	{
-		// 		UE_LOG(LogTemp, Log, TEXT("Front Wheel OK FW Z Pos: %f, GroundHeight: %f"),
+		// 		UE_LOG(LogRunnerMovement, Log, TEXT("Front Wheel OK FW Z Pos: %f, GroundHeight: %f"),
 		// 				FWWSPos.Z, GroundHeightInFW);
 		// 	}
 		// }
@@ -265,22 +267,22 @@ FRotator URunnerMovementComponent::CalcWakingTargetRotation(bool& bAccuracy) con
 		// {
 		// 	if (BLWWSPos.Z - GroundHeightInBLW >= SkateboardTraceDistance)
 		// 	{
-		// 		UE_LOG(LogTemp, Warning, TEXT("Back Left Wheel Too High! BLW Z Pos: %f, GroundHeight: %f"),
+		// 		UE_LOG(LogRunnerMovement, Warning, TEXT("Back Left Wheel Too High! BLW Z Pos: %f, GroundHeight: %f"),
 		// 				BLWWSPos.Z, GroundHeightInBLW);
 		// 	}
 		// 	else
 		// 	{
-		// 		UE_LOG(LogTemp, Log, TEXT("Back Left Wheel OK BLW Z Pos: %f, GroundHeight: %f"),
+		// 		UE_LOG(LogRunnerMovement, Log, TEXT("Back Left Wheel OK BLW Z Pos: %f, GroundHeight: %f"),
 		// 				BLWWSPos.Z, GroundHeightInBLW);
 		// 	}
 		// 	if (BRWWSPos.Z - GroundHeightInBRW >= SkateboardTraceDistance)
 		// 	{
-		// 		UE_LOG(LogTemp, Warning, TEXT("Back Right Wheel Too High! BRW Z Pos: %f, GroundHeight: %f"),
+		// 		UE_LOG(LogRunnerMovement, Warning, TEXT("Back Right Wheel Too High! BRW Z Pos: %f, GroundHeight: %f"),
 		// 				BRWWSPos.Z, GroundHeightInBRW);
 		// 	}
 		// 	else
 		// 	{
-		// 		UE_LOG(LogTemp, Log, TEXT("Back Right Wheel OK BRW Z Pos: %f, GroundHeight: %f"),
+		// 		UE_LOG(LogRunnerMovement, Log, TEXT("Back Right Wheel OK BRW Z Pos: %f, GroundHeight: %f"),
 		// 				BRWWSPos.Z, GroundHeightInBRW);
 		// 	}
 		// }
@@ -381,7 +383,7 @@ bool URunnerMovementComponent::HandleBlockingHit(const FHitResult& Hit)
 		auto* HitComponent = Hit.GetComponent();
 		if (HitComponent)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::HandleImpact: Hit Object %s!"), *HitComponent->GetName());
+			// UE_LOG(LogRunnerMovement, Warning, TEXT("URunnerMovementComponent::HandleImpact: Hit Object %s!"), *HitComponent->GetName());
 			auto* ISM = Cast<UInstancedStaticMeshComponent>(HitComponent);
 			if (ISM)
 			{
@@ -455,9 +457,9 @@ void URunnerMovementComponent::StartFalling(int32 Iterations, float remainingTim
 {
 	InAirTime = 0.0f; // 重置空中时间
 	Velocity.Z = CalcStartZVelocity();
-	UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::StartFalling: Start Falling! New Z Velocity: %f, Actor Location: %s"), Velocity.Z, *GetOwner()->GetActorLocation().ToString());
+	// UE_LOG(LogRunnerMovement, Warning, TEXT("URunnerMovementComponent::StartFalling: Start Falling! New Z Velocity: %f, Actor Location: %s"), Velocity.Z, *GetOwner()->GetActorLocation().ToString());
 	Super::StartFalling(Iterations, remainingTime, timeTick, Delta, subLoc);
-	UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::StartFalling: Start Falling Call end! New Z Velocity: %f, Actor Location: %s"), Velocity.Z, *GetOwner()->GetActorLocation().ToString());
+	// UE_LOG(LogRunnerMovement, Warning, TEXT("URunnerMovementComponent::StartFalling: Start Falling Call end! New Z Velocity: %f, Actor Location: %s"), Velocity.Z, *GetOwner()->GetActorLocation().ToString());
 }
 
 bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, const FFindFloorResult& NewFloor)
@@ -512,7 +514,7 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 	auto Curvature = dd / Length;
 
 	auto VelocitySize = Velocity.Size2D();
-	// UE_LOG(LogTemp, Warning, TEXT("GroundNewPos: %s, GroundOldPos: %s, NormalNew: %s, NormalOld: %s, TanNew: %s, TanOld: %s, dNew: %lf, dOld: %lf, dd: %lf, Length: %lf, Curvature: %lf"), *GroundNew.ToString(), *GroundOld.ToString(), *NewNormal.ToString(), *OldNormal.ToString(), *TanNew.ToString(), *TanOld.ToString(), dNew, dOld, dd, Length, Curvature * VelocitySize * VelocitySize);
+	// UE_LOG(LogRunnerMovement, Warning, TEXT("GroundNewPos: %s, GroundOldPos: %s, NormalNew: %s, NormalOld: %s, TanNew: %s, TanOld: %s, dNew: %lf, dOld: %lf, dd: %lf, Length: %lf, Curvature: %lf"), *GroundNew.ToString(), *GroundOld.ToString(), *NewNormal.ToString(), *OldNormal.ToString(), *TanNew.ToString(), *TanOld.ToString(), dNew, dOld, dd, Length, Curvature * VelocitySize * VelocitySize);
 
 	auto OldDot = FVector::DotProduct(OldNormal, VelocityDir);
 	auto NewDot = FVector::DotProduct(NewNormal, VelocityDir);
@@ -523,7 +525,7 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 	}
 	else if (!bUseCurvatureForTakeoff && (NewDot - OldDot) >= DeltaNormalThreshold)
 	{
-		// UE_LOG(LogTemp, Warning, TEXT("ShouldCatchAir: OldDot: %f, NewDot: %f, Delta: %f"), OldDot, NewDot, NewDot - OldDot);
+		// UE_LOG(LogRunnerMovement, Warning, TEXT("ShouldCatchAir: OldDot: %f, NewDot: %f, Delta: %f"), OldDot, NewDot, NewDot - OldDot);
 		return true;
 	}
 	return false;
@@ -548,7 +550,7 @@ double URunnerMovementComponent::CalcStartZVelocity(double Roll, double GroundSp
 		// auto Alpha = FMath::Clamp(-LastRoll / MaxStartRollAngleInAir, 0.0f, 1.0f);
 		ResultZ = FMath::Clamp(ZVelocity * TakeoffSpeedScale, 0.0, MaxStartZVelocityInAir);
 	}
-	UE_LOG(LogTemp, Warning, TEXT("LastRoll: %f, TanTheta: %f, ResultZ: %f"), Roll, FMath::Tan(FMath::DegreesToRadians(Roll)), ResultZ);
+	// UE_LOG(LogRunnerMovement, Warning, TEXT("LastRoll: %f, TanTheta: %f, ResultZ: %f"), Roll, FMath::Tan(FMath::DegreesToRadians(Roll)), ResultZ);
 	return ResultZ;
 }
 
@@ -564,7 +566,7 @@ double URunnerMovementComponent::CalcStartZVelocity() const
 		}
 		OldHit.Reset();
 	}
-	UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::CalcStartZVelocity: LastRoll: %f"), LastRoll);
+	// UE_LOG(LogRunnerMovement, Warning, TEXT("URunnerMovementComponent::CalcStartZVelocity: LastRoll: %f"), LastRoll);
 	auto ResultZ = CalcStartZVelocity(LastRoll, Velocity.Size2D(), TakeoffSpeedScale, MaxStartZVelocityInAir);
 	return ResultZ;
 }
@@ -673,9 +675,9 @@ void URunnerMovementComponent::CalcVelocity(float DeltaTime, float Friction, boo
 		CalcAvoidanceVelocity(DeltaTime);
 	}
 
-	// UE_LOG(LogTemp, Log, TEXT("URunnerMovementComponent::CalcVelocity called with bZeroRequestedAcceleration: %s, bVelocityOverMax: %s, AnalogInputModifier: %f, MaxSpeed: %f"), bZeroRequestedAcceleration ? TEXT("true") : TEXT("false"), bVelocityOverMax ? TEXT("true") : TEXT("false"), AnalogInputModifier, MaxSpeed);
-	// UE_LOG(LogTemp, Log, TEXT("URunnerMovementComponent::CalcVelocity called with VectorImm: %s, VectorImm2: %s, NewMaxInput: %f"), *VectorImm.ToString(), *VectorImm2.ToString(), NewMaxInput);
-	// UE_LOG(LogTemp, Log, TEXT("URunnerMovementComponent::CalcVelocity called with DeltaTime: %f, Friction: %f, bFluid: %d, BrakingDeceleration: %f, Accelaration: %s, OldVelocity: %s, OldSize %f, NewVelocity: %s, NewSize %f"), DeltaTime, Friction, bFluid, BrakingDeceleration, *Acceleration.ToString(), *OOldVelocity.ToString(), OOldVelocity.Size(), *Velocity.ToString(), Velocity.Size());
+	// UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent::CalcVelocity called with bZeroRequestedAcceleration: %s, bVelocityOverMax: %s, AnalogInputModifier: %f, MaxSpeed: %f"), bZeroRequestedAcceleration ? TEXT("true") : TEXT("false"), bVelocityOverMax ? TEXT("true") : TEXT("false"), AnalogInputModifier, MaxSpeed);
+	// UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent::CalcVelocity called with VectorImm: %s, VectorImm2: %s, NewMaxInput: %f"), *VectorImm.ToString(), *VectorImm2.ToString(), NewMaxInput);
+	// UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent::CalcVelocity called with DeltaTime: %f, Friction: %f, bFluid: %d, BrakingDeceleration: %f, Accelaration: %s, OldVelocity: %s, OldSize %f, NewVelocity: %s, NewSize %f"), DeltaTime, Friction, bFluid, BrakingDeceleration, *Acceleration.ToString(), *OOldVelocity.ToString(), OOldVelocity.Size(), *Velocity.ToString(), Velocity.Size());
 	// 速度设置为与滑板的前进的方向一致
 	if (IsWalking() && SkateboardMesh)
 	{
@@ -757,7 +759,7 @@ void URunnerMovementComponent::FindFloor(const FVector& CapsuleLocation, FFindFl
 		// auto* ISM = Cast<UInstancedStaticMeshComponent>(HitComp);
 		// if (ISM && ISM->GetInstanceTransform(OutFloorResult.HitResult.Item, OutInstanceTransform))
 		// {
-		// 	UE_LOG(LogTemp, Warning, TEXT("URunnerMovementComponent::FindFloor HitResult: CompName %s, item %d, Rotation: %s"), *HitComp->GetName(), OutFloorResult.HitResult.Item, *OutInstanceTransform.GetRotation().Rotator().ToString());
+		// 	UE_LOG(LogRunnerMovement, Warning, TEXT("URunnerMovementComponent::FindFloor HitResult: CompName %s, item %d, Rotation: %s"), *HitComp->GetName(), OutFloorResult.HitResult.Item, *OutInstanceTransform.GetRotation().Rotator().ToString());
 		// }
 	}
 	Super::FindFloor(CapsuleLocation, OutFloorResult, bCanUseCachedLocation, DownwardSweepResult);
@@ -779,7 +781,7 @@ void URunnerMovementComponent::AdjustFloorHeight()
 		if (OldFloorDist < MIN_FLOOR_DIST && CurrentFloor.LineDist >= MIN_FLOOR_DIST)
 		{
 			// This would cause us to scale unwalkable walls
-			UE_LOG(LogTemp, VeryVerbose, TEXT("Adjust floor height aborting due to line trace with small floor distance (line: %.2f, sweep: %.2f)"), CurrentFloor.LineDist, CurrentFloor.FloorDist);
+			// UE_LOG(LogRunnerMovement, VeryVerbose, TEXT("Adjust floor height aborting due to line trace with small floor distance (line: %.2f, sweep: %.2f)"), CurrentFloor.LineDist, CurrentFloor.FloorDist);
 			return;
 		}
 		else
@@ -808,7 +810,7 @@ void URunnerMovementComponent::AdjustFloorHeight()
 		}
 
 		SafeMoveUpdatedComponent(MoveDist * -GetGravityDirection(), UpdatedComponent->GetComponentQuat(), true, AdjustHit);
-		UE_LOG(LogTemp, VeryVerbose, TEXT("Adjust floor height %.3f (Hit = %d)"), MoveDist, AdjustHit.bBlockingHit);
+		// UE_LOG(LogRunnerMovement, VeryVerbose, TEXT("Adjust floor height %.3f (Hit = %d)"), MoveDist, AdjustHit.bBlockingHit);
 
 		if (!AdjustHit.IsValidBlockingHit())
 		{

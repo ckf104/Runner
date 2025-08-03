@@ -27,6 +27,8 @@
 #include <functional>
 #include <random>
 
+DEFINE_LOG_CATEGORY_STATIC(LogWorldGenerator, Log, All);
+
 // 从 Async.cpp 中 copy 过来的
 class FPCGAsyncGraphTask : public FAsyncGraphTaskBase
 {
@@ -192,8 +194,8 @@ void AWorldGenerator::DebugPrint() const
 	auto UV2 = MeshInfo->ProcVertexBuffer[V2].UV0;
 	auto UV3 = MeshInfo->ProcVertexBuffer[V3].UV0;
 
-	UE_LOG(LogTemp, Log, TEXT("Player Position: %s, V1 Pos: %s, V1 UV: %s, V2 Pos: %s, V2 UV: %s, V3 Pos: %s, V3 UV: %s"),
-			*Pos.ToString(), *Vertex1.ToString(), *UV1.ToString(), *Vertex2.ToString(), *UV2.ToString(), *Vertex3.ToString(), *UV3.ToString());
+	// UE_LOG(LogWorldGenerator, Log, TEXT("Player Position: %s, V1 Pos: %s, V1 UV: %s, V2 Pos: %s, V2 UV: %s, V3 Pos: %s, V3 UV: %s"),
+	// 		*Pos.ToString(), *Vertex1.ToString(), *UV1.ToString(), *Vertex2.ToString(), *UV2.ToString(), *Vertex3.ToString(), *UV3.ToString());
 }
 
 TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetPMCFromHorizontalPos(FVector2D Pos) const
@@ -220,7 +222,7 @@ TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetPMCFromHorizontalPos
 		if (!PMC)
 		{
 			PMC = NewObject<UProceduralMeshComponent>(NonConstThis, UProceduralMeshComponent::StaticClass(), NAME_None);
-			UE_LOG(LogTemp, Warning, TEXT("Creating new PMC for region: %s at index %d, input position: %s"), *Region.ToString(), ReplacableIndex, *Pos.ToString());
+			// UE_LOG(LogWorldGenerator, Warning, TEXT("Creating new PMC for region: %s at index %d, input position: %s"), *Region.ToString(), ReplacableIndex, *Pos.ToString());
 			PMC->bUseAsyncCooking = true; // 重中之重！！
 			PMC->SetCollisionProfileName(TEXT("BlockAll"));
 			PMC->RegisterComponent();
@@ -245,8 +247,8 @@ TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetPMCFromHorizontalPos
 		}
 		UProceduralMeshComponent* PMC = ProceduralMeshComp[ReplacableIndex];
 		auto OldRegion = GetRegionFromPMC(PMC);
-		UE_LOG(LogTemp, Warning, TEXT("Replacing PMC for region: %s with new region: %s at index %d, input position: %s"),
-				*OldRegion.ToString(), *Region.ToString(), ReplacableIndex, *Pos.ToString());
+		// UE_LOG(LogWorldGenerator, Warning, TEXT("Replacing PMC for region: %s with new region: %s at index %d, input position: %s"),
+		// 		*OldRegion.ToString(), *Region.ToString(), ReplacableIndex, *Pos.ToString());
 		PMC->ClearAllMeshSections();
 		PMC->SetWorldLocation(FVector(Region.X * RegionSize, Region.Y * RegionSize, 0.0f));
 
@@ -264,7 +266,7 @@ TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetPMCFromHorizontalPos
 		{
 			if (It.Key().Z == ReplacableIndex)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData before used!"), It.Key().Z, *FIntVector(It.Key()).ToString());
+				// UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData before used!"), It.Key().Z, *FIntVector(It.Key()).ToString());
 				It.RemoveCurrent();
 			}
 		}
@@ -396,7 +398,7 @@ double AWorldGenerator::GetHeightFromPerlinAnyThread(FVector2D Pos, FInt32Point 
 {
 	if (PerlinAmplitude.Num() != PerlinFreq.Num())
 	{
-		// UE_LOG(LogTemp, Warning, TEXT("PerlinFreq and PerlinAmplitude arrays must have the same length!"));
+		// UE_LOG(LogWorldGenerator, Warning, TEXT("PerlinFreq and PerlinAmplitude arrays must have the same length!"));
 		return 0.0;
 	}
 	double PerlinXOffset = 1 / FMath::Sqrt(2.0);
@@ -422,14 +424,14 @@ FVector AWorldGenerator::GetNormalFromHorizontalPos(FVector2D Pos) const
 	auto MeshSection = TileMap[PMCIndex].Find(Tile);
 	if (MeshSection == INDEX_NONE)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Tile not found in TileMap for position: %s"), *Pos.ToString());
+		UE_LOG(LogWorldGenerator, Warning, TEXT("Tile not found in TileMap for position: %s"), *Pos.ToString());
 		return FVector::UpVector; // Tile not found
 	}
 
 	auto* MeshInfo = PMC->GetProcMeshSection(MeshSection);
 	if (!MeshInfo)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Mesh section not found for PMC at index %d"), PMCIndex);
+		UE_LOG(LogWorldGenerator, Warning, TEXT("Mesh section not found for PMC at index %d"), PMCIndex);
 		return FVector::UpVector; // Mesh section not found
 	}
 
@@ -507,7 +509,7 @@ void AWorldGenerator::CreateMeshFromTileData()
 				auto RemoveNumber = CachedSpawnData.Remove(FIntVector(OldTile.X, OldTile.Y, PMCIndex));
 				if (RemoveNumber > 0)
 				{
-					UE_LOG(LogTemp, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData!"), PMCIndex, *FIntVector(OldTile.X, OldTile.Y, PMCIndex).ToString());
+					UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData!"), PMCIndex, *FIntVector(OldTile.X, OldTile.Y, PMCIndex).ToString());
 				}
 			}
 
@@ -532,15 +534,51 @@ void AWorldGenerator::CreateMeshFromTileData()
 				}
 			}
 			// 可视化采样点
-			if (bDrawSamplingPoint)
+			if (bDrawSamplingPoint && Tile.X == 50)
 			{
+				FColor Colors[4] = { FColor::Red, FColor::Green, FColor::Blue, FColor::Yellow };
+				int32 ColorIdx = 0;
+				auto CurrentGroupIndex = BarrierSpawners[0]->BarrierGroup;
 				TArray<FVector> WorldPositions;
 				TArray<FVector2D> UVPositions;
-				for (auto RandomPos : RandomPoints)
+				TArray<FVector2D> SameGroupPos;
+				StartIdx = 0;
+				for (int32 Idx = 0, TotalBarrier = BarrierSpawners.Num(); Idx < TotalBarrier; ++Idx)
 				{
-					auto WorldPos = GetVisualWorldPositionFromUV(RandomPos.UVPos, NewTile);
-					WorldPositions.Add(WorldPos);
-					UVPositions.Add(RandomPos.UVPos);
+					if (BarrierSpawners[Idx]->BarrierGroup != CurrentGroupIndex)
+					{
+						ColorIdx = (ColorIdx + 1) % 4; // Change color for next group
+						if (bCheckPoissonSampling && CurrentGroupIndex == 0)
+						{
+							for (int32 m = 0; m < SameGroupPos.Num(); ++m)
+							{
+								for (int32 j = m + 1; j < SameGroupPos.Num(); ++j)
+								{
+									auto Dist = FVector2D::Distance(SameGroupPos[m], SameGroupPos[j]);
+									if (Dist < 1200)
+									{
+										UE_LOG(LogWorldGenerator, Error, TEXT("Poisson sampling points too close: %s and %s, distance: %f, Tile %s"),
+												*SameGroupPos[m].ToString(), *SameGroupPos[j].ToString(), Dist, *NewTile.ToString());
+									}
+								}
+							}
+							SameGroupPos.Empty(); // Clear for next group
+						}
+					}
+					CurrentGroupIndex = BarrierSpawners[Idx]->BarrierGroup;
+					FColor CurrentColor = Colors[ColorIdx];
+					auto BarCount = BarriersCount[Idx];
+					auto EndIdx = StartIdx + BarCount;
+					for (; StartIdx < EndIdx; ++StartIdx)
+					{
+						auto& RandomPos = RandomPoints[StartIdx];
+						SameGroupPos.Add(FVector2D(RandomPos.UVPos.X * CellSize * XCellNumber, RandomPos.UVPos.Y * CellSize * YCellNumber));
+						auto WorldPos = GetVisualWorldPositionFromUV(RandomPos.UVPos, NewTile);
+						DrawDebugBox(GetWorld(), WorldPos, FVector(100.0f), CurrentColor, true, 5.0f);
+						WorldPositions.Add(WorldPos);
+						UVPositions.Add(RandomPos.UVPos);
+					}
+					StartIdx = EndIdx; // Update StartIdx for the next barrier
 				}
 				UVPositions.Sort([](const FVector2D& A, const FVector2D& B) {
 					return A.X < B.X;
@@ -548,10 +586,10 @@ void AWorldGenerator::CreateMeshFromTileData()
 				WorldPositions.Sort([](const FVector& A, const FVector& B) {
 					return A.X < B.X;
 				});
-				for (auto WorldPos : WorldPositions)
-				{
-					DrawDebugBox(GetWorld(), WorldPos, FVector(100.0f), FColor::Red, true, 5.0f);
-				}
+				// for (auto WorldPos : WorldPositions)
+				// {
+				// 	// DrawDebugBox(GetWorld(), WorldPos, FVector(100.0f), FColor::Red, true, 5.0f);
+				// }
 			}
 			// 释放 slot
 			BufferStateGameThreadOnly[i] = EBufferState::Idle; // Reset the buffer state
@@ -569,14 +607,14 @@ void AWorldGenerator::PMCClear(int32 ReplaceableIndex)
 {
 	if (ReplaceableIndex < 0 || ReplaceableIndex >= MaxRegionCount)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Invalid PMC index: %d"), ReplaceableIndex);
+		UE_LOG(LogWorldGenerator, Warning, TEXT("Invalid PMC index: %d"), ReplaceableIndex);
 		return;
 	}
 
 	UProceduralMeshComponent* PMC = ProceduralMeshComp[ReplaceableIndex];
 	auto OldRegion = GetRegionFromPMC(PMC);
-	UE_LOG(LogTemp, Warning, TEXT("Clear PMC for old region: %s"),
-			*OldRegion.ToString());
+	// UE_LOG(LogWorldGenerator, Warning, TEXT("Clear PMC for old region: %s"),
+	// 		*OldRegion.ToString());
 	PMC->ClearAllMeshSections();
 
 	for (auto Tile : TileMap[ReplaceableIndex])
@@ -593,7 +631,7 @@ void AWorldGenerator::PMCClear(int32 ReplaceableIndex)
 	{
 		if (It.Key().Z == ReplaceableIndex)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData before used!"), It.Key().Z, *FIntVector(It.Key()).ToString());
+			UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData before used!"), It.Key().Z, *FIntVector(It.Key()).ToString());
 			It.RemoveCurrent();
 		}
 	}
@@ -620,7 +658,7 @@ bool AWorldGenerator::GenerateOneTile(FInt32Point Tile)
 	}
 	if (BufferIndex == MaxThreadCount)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("All buffers are busy, cannot generate new tile at %s"), *Tile.ToString());
+		UE_LOG(LogWorldGenerator, Warning, TEXT("All buffers are busy, cannot generate new tile at %s"), *Tile.ToString());
 		return false; // All buffers are busy
 	}
 
@@ -720,7 +758,7 @@ void AWorldGenerator::GenerateNewTiles()
 		auto bSuccess = BarrierSpawners[ReplacableIndex]->DeferSpawnBarriers(It.Value(), Tile, this);
 		if (bSuccess)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Spawner %d, tile %s spawned barriers from CachedSpawnData!"), ReplacableIndex, *Tile.ToString());
+			UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s spawned barriers from CachedSpawnData!"), ReplacableIndex, *Tile.ToString());
 			It.RemoveCurrent();
 		}
 	}
@@ -779,14 +817,14 @@ FVector AWorldGenerator::GetVisualWorldPositionFromUV(FVector2D UV, FInt32Point 
 	auto MeshSection = TileMap[PMCIndex].Find(Tile);
 	if (MeshSection == INDEX_NONE)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Tile not found in TileMap for position: %s"), *TestPos.ToString());
+		UE_LOG(LogWorldGenerator, Warning, TEXT("Tile not found in TileMap for position: %s"), *TestPos.ToString());
 		return FVector::ZeroVector; // Tile not found
 	}
 
 	auto* MeshInfo = PMC->GetProcMeshSection(MeshSection);
 	if (!MeshInfo)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Mesh section not found for PMC at index %d"), PMCIndex);
+		UE_LOG(LogWorldGenerator, Warning, TEXT("Mesh section not found for PMC at index %d"), PMCIndex);
 		return FVector::ZeroVector; // Mesh section not found
 	}
 	FVector2D BarycentricCoords;
@@ -896,7 +934,7 @@ void AWorldGenerator::GenerateRandomPointsAsync(int32 BufferIndex, FInt32Point T
 
 	// GenerateUniformRandomPointsAsync(BufferIndex, RandomPoints);
 	GeneratePoissonRandomPointsAsync(BufferIndex, RandomPoints);
-	UE_LOG(LogTemp, Warning, TEXT("Generated %d random points for tile %s in buffer %d"), RandomPoints.Num(), *Tile.ToString(), BufferIndex);
+	// UE_LOG(LogWorldGenerator, Warning, TEXT("Generated %d random points for tile %s in buffer %d"), RandomPoints.Num(), *Tile.ToString(), BufferIndex);
 }
 
 void AWorldGenerator::GenerateUniformRandomPointsAsync(int32 BufferIndex, TArray<RandomPoint>& RandomPoints)
@@ -933,6 +971,8 @@ void AWorldGenerator::GenerateUniformRandomPointsAsync(int32 BufferIndex, TArray
 
 void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray<RandomPoint>& RandomPoints)
 {
+	RandomPoints.SetNumUninitialized(0, EAllowShrinking::No);
+
 	auto XSize = CellSize * XCellNumber;
 	auto YSize = CellSize * YCellNumber;
 
@@ -966,6 +1006,22 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray
 		auto SampleNumber = PoissonSampling(XSize, YSize, PoissonDistance, SampleCountBeforeReject, RandomEngine, DistFunc, OutPoints);
 		ensure(SampleNumber == OutPoints.Num()); // 确保采样点数量与返回值一致
 
+		if (bCheckPoissonSampling)
+		{
+			for (int32 i = 0; i < OutPoints.Num(); ++i)
+			{
+				for (int32 j = i + 1; j < OutPoints.Num(); ++j)
+				{
+					auto Dist = FVector2D::Distance(OutPoints[i], OutPoints[j]);
+					if (Dist < PoissonDistance)
+					{
+						UE_LOG(LogWorldGenerator, Error, TEXT("Poisson sampling failed at index %d and %d with distance %f < %f"),
+								i, j, Dist, PoissonDistance);
+					}
+				}
+			}
+		}
+
 		// 根据比例计算每个 Spawner 实际的障碍物数量
 		int32 RealTotalBarrierCount = 0;
 		for (int32 Idx = StartIndex; Idx < EndIndex; ++Idx)
@@ -984,8 +1040,8 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray
 			*MaxEle -= ExcessCount;
 			RealTotalBarrierCount = SampleNumber;
 		}
-		UE_LOG(LogTemp, Log, TEXT("Group %d Generate RealTotalBarrierCount: %d"),
-				GroupIndex, RealTotalBarrierCount);
+		// UE_LOG(LogWorldGenerator, Log, TEXT("Group %d Generate RealTotalBarrierCount: %d"),
+		// 		GroupIndex, RealTotalBarrierCount);
 
 		// TArray 返回的迭代器与 std 需要的迭代器不匹配
 		std::shuffle(OutPoints.GetData(), OutPoints.GetData() + SampleNumber, RandomEngine);
@@ -1004,6 +1060,25 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, TArray
 
 			RandomPoints[i].Rotation = Rotation;
 			RandomPoints[i].Scale = FVector(1.0, 1.0, 1.0); // 设置默认缩放
+		}
+		
+		if (bCheckPoissonSampling)
+		{
+			for (int32 i = OldPosCnt; i < OldPosCnt + RealTotalBarrierCount; ++i)
+			{
+				for (int32 j = i + 1; j < OldPosCnt + RealTotalBarrierCount; ++j)
+				{
+					auto Pos1 = FVector2D(RandomPoints[i].UVPos.X * XSize, RandomPoints[i].UVPos.Y * YSize);
+					auto Pos2 = FVector2D(RandomPoints[j].UVPos.X * XSize, RandomPoints[j].UVPos.Y * YSize);
+					// 检查采样点
+					auto Dist = FVector2D::Distance(Pos1, Pos2);
+					if (Dist < PoissonDistance)
+					{
+						UE_LOG(LogWorldGenerator, Error, TEXT("Poisson sampling points too close: %s and %s, distance: %f"),
+								*Pos1.ToString(), *Pos2.ToString(), Dist);
+					}
+				}
+			}
 		}
 
 		StartIndex = EndIndex; // 更新 StartIndex 到下一个分组的起始位置
@@ -1167,7 +1242,7 @@ void AWorldGenerator::GenerateGaussian2D(TArray<FVector>& Vertices) const
 		Vertex.Z = Gaussian2D(Vertex.X, Vertex.Y);
 		MaxZ = FMath::Max(MaxZ, Vertex.Z);
 	}
-	UE_LOG(LogTemp, Warning, TEXT("Max Z value in Gaussian distribution: %f"), MaxZ);
+	// UE_LOG(LogWorldGenerator, Warning, TEXT("Max Z value in Gaussian distribution: %f"), MaxZ);
 }
 
 #if WITH_EDITOR

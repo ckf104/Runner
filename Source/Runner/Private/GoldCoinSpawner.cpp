@@ -25,7 +25,7 @@ void AGoldCoinSpawner::BeginPlay()
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("AGoldCoinSpawner::BeginPlay: No AISMBridgeSpawner found in the world!"));
+		UE_LOG(LogBarrierSpawner, Error, TEXT("AGoldCoinSpawner::BeginPlay: No AISMBridgeSpawner found in the world!"));
 	}
 	auto* Character = UGameplayStatics::GetPlayerCharacter(this, 0);
 	if (Character)
@@ -77,7 +77,7 @@ void AGoldCoinSpawner::GenerateGoldTrace(FVector WorldStartPos, double StartYaw,
     // 地面的碰撞是异步生成的，因此我们使用高度图直接检查碰撞
     if (Z < WorldHeight + BarrierRadius)
     {
-      UE_LOG(LogTemp, Warning, TEXT("AGoldCoinSpawner::GenerateGoldTrace: Coin Z position %f is below world height %f at (%f, %f)"), Z, WorldHeight, X, Y);
+      // UE_LOG(LogBarrierSpawner, Warning, TEXT("AGoldCoinSpawner::GenerateGoldTrace: Coin Z position %f is below world height %f at (%f, %f)"), Z, WorldHeight, X, Y);
       break;
     }
 
@@ -93,7 +93,7 @@ void AGoldCoinSpawner::GenerateGoldTrace(FVector WorldStartPos, double StartYaw,
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("AGoldCoinSpawner::GenerateGoldTrace: Failed to spawn coin at %s"), *CoinPos.ToString());
+			// UE_LOG(LogBarrierSpawner, Warning, TEXT("AGoldCoinSpawner::GenerateGoldTrace: Failed to spawn coin at %s"), *CoinPos.ToString());
 			break;
 		}
 
@@ -140,7 +140,7 @@ void AGoldCoinSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Po
 		}
     if (i >= UsedInstances.Num())
     {
-      UE_LOG(LogTemp, Warning, TEXT("AGoldCoinSpawner::SpawnBarriers: All Bridge instances in tile %s are used up!"), *Tile.ToString());
+      // UE_LOG(LogBarrierSpawner, Warning, TEXT("AGoldCoinSpawner::SpawnBarriers: All Bridge instances in tile %s are used up!"), *Tile.ToString());
       break;
     }
 

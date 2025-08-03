@@ -9,6 +9,8 @@
 #include "WorldGenerator.h"
 #include "BarrierSpawner.generated.h"
 
+DECLARE_LOG_CATEGORY_EXTERN(LogBarrierSpawner, Log, All);
+
 UENUM()
 enum class EAlignMode : uint8
 {

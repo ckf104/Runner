@@ -9,6 +9,7 @@
 AISMClusterSpawner::AISMClusterSpawner()
 {
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootComponent"));
+	RootComponent->SetMobility(EComponentMobility::Static);
 }
 
 // void AISMClusterSpawner::PostInitProperties()
@@ -90,7 +91,7 @@ void AISMClusterSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32
 			}
 			if (TryNumber >= TryTimeBeforeGiveUp)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("ISMClusterSpawner: Failed to place enough meshes in cluster at tile %s"), *Tile.ToString());
+				UE_LOG(LogBarrierSpawner, Warning, TEXT("ISMClusterSpawner: Failed to place enough meshes in cluster at tile %s"), *Tile.ToString());
 				break;
 			}
 		}
@@ -145,7 +146,7 @@ void AISMClusterSpawner::PostEditChangeProperty(FPropertyChangedEvent& PropertyC
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
-	UE_LOG(LogTemp, Warning, TEXT("AISMClusterSpawner::PostEditChangeProperty called"));
+	// UE_LOG(LogBarrierSpawner, Warning, TEXT("AISMClusterSpawner::PostEditChangeProperty called"));
 	static const FName ISMComponentsName = GET_MEMBER_NAME_CHECKED(AISMClusterSpawner, ISMComponents);
 	if (PropertyChangedEvent.GetPropertyName() == ISMComponentsName)
 	{
@@ -195,7 +196,7 @@ void AISMClusterSpawner::PostEditChangeProperty(FPropertyChangedEvent& PropertyC
 				{
 					UInstancedStaticMeshComponent* NewISMComponent = NewObject<UInstancedStaticMeshComponent>(this, UInstancedStaticMeshComponent::StaticClass(), *FString::Printf(TEXT("ISMComponent_%d"), i));
 					NewISMComponent->SetMobility(EComponentMobility::Static);
-					NewISMComponent->SetCollisionProfileName(CollisionProfileName);
+					NewISMComponent->SetCollisionProfileName("Barrier");
 					NewISMComponent->SetupAttachment(RootComponent);
 					NewISMComponent->RegisterComponent();
 					ISMComponents[i] = NewISMComponent;

@@ -15,7 +15,7 @@ class UInputMappingContext;
 class UInputAction;
 struct FInputActionValue;
 
-DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
+DECLARE_LOG_CATEGORY_EXTERN(LogRunnerCharacter, Log, All);
 
 UCLASS(config = Game)
 class ARunnerCharacter : public ACharacter
@@ -63,6 +63,8 @@ public:
 	void TakeHitImpact();
 	void NotifyActorBeginOverlap(AActor* OtherActor) override;
 	void NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit) override;
+
+	void FellOutOfWorld(const class UDamageType& dmgType) override;
 
 	UFUNCTION()
 	void DealBarrierOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
@@ -121,6 +123,9 @@ public:
 	float MaxMana = 100.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float InitialManaScale = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
 	float ManaReduceSpeed = 10.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
@@ -142,17 +147,11 @@ public:
 
 	void InitUI();
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
-	TSubclassOf<class UHealthBarWidget> HealthBarWidgetClass;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
-	TSubclassOf<class UHealthBarWidget> ManaBarWidgetClass;
-
-	// UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
+	UPROPERTY(EditAnywhere, Category = "UI")
+	class TSubclassOf<class UGameUIUserWidget> GameUIWidgetClass;
 
 	UPROPERTY()
-	class UHealthBarWidget* HealthBarWidget = nullptr;
-	UPROPERTY()
-	class UHealthBarWidget* ManaBarWidget = nullptr;
+	class UGameUIUserWidget* GameUIWidget = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
 	class UNiagaraComponent* LThrust;
