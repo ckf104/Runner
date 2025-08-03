@@ -145,7 +145,7 @@ void ARunnerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ARunnerCharacter::Look);
 
-		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Started, this, &ARunnerCharacter::StartThrust, EThrustSource::UserThrust);
+		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Started, this, &ARunnerCharacter::StartThrust, EThrustSource::UserThrust, 0.0f);
 		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Completed, this, &ARunnerCharacter::StopThrust, EThrustSource::UserThrust);
 		EnhancedInputComponent->BindAction(ThrustAction, ETriggerEvent::Canceled, this, &ARunnerCharacter::StopThrust, EThrustSource::UserThrust);
 
@@ -175,7 +175,16 @@ void ARunnerCharacter::Tick(float Delta)
 	// 	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::Tick called with Delta: %s"), *GetVelocity().ToString());
 	// }
 
-	if ((Thrusting & static_cast<int8>(EThrustSource::UserThrust)) && (Thrusting & static_cast<int8>(EThrustSource::FreeThrust)) == 0)
+	if (Thrusting & static_cast<int8>(EThrustSource::FreeThrust))
+	{
+		FreeThrustTime -= Delta;
+		if (FreeThrustTime <= 0.0f)
+		{
+			StopThrust(EThrustSource::FreeThrust);
+			FreeThrustTime = 0.0f;
+		}
+	}
+	else if (Thrusting & static_cast<int8>(EThrustSource::UserThrust))
 	{
 		Mana -= ManaReduceSpeed * Delta;
 		if (Mana <= 0.0f)
@@ -315,30 +324,28 @@ void ARunnerCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
-void ARunnerCharacter::StartThrust(EThrustSource ThrustStatus)
+void ARunnerCharacter::StartThrust(EThrustSource ThrustStatus, float ThrustTime)
 {
 	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::StartThrust called, Mana: %f"), Mana);
+	auto OldStatus = Thrusting;
 	int8 ThrustStatusInt = static_cast<int8>(ThrustStatus);
-	if ((Thrusting & ThrustStatusInt) > 0)
+	if (ThrustStatus == EThrustSource::FreeThrust)
 	{
-		return;
+		FreeThrustTime = FMath::Max(FreeThrustTime, ThrustTime);
+		Thrusting |= ThrustStatusInt; // Set the thrusting status
 	}
-	if (Mana <= MinimumThrustMana && ThrustStatus != EThrustSource::FreeThrust)
+	else if (Mana > MinimumThrustMana)
 	{
-		return; // Not enough mana to thrust
+		Thrusting |= ThrustStatusInt; // Set the thrusting status
 	}
-	Thrusting |= ThrustStatusInt; // Set the thrusting status
 
-	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
-	MovementComp->StartThrust();
-
-	// 从 non thrust 切换到 thrust 状态
-	if (LThrust && Thrusting == ThrustStatusInt)
+	if (OldStatus == 0 && Thrusting > 0)
 	{
+		auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+		MovementComp->StartThrust();
+
+		// 从 non thrust 切换到 thrust 状态
 		LThrust->Activate();
-	}
-	if (RThrust && Thrusting == ThrustStatusInt)
-	{
 		RThrust->Activate();
 	}
 }
@@ -346,24 +353,17 @@ void ARunnerCharacter::StartThrust(EThrustSource ThrustStatus)
 void ARunnerCharacter::StopThrust(EThrustSource ThrustStatus)
 {
 	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::StopThrust called, Mana: %f"), Mana);
+	auto OldStatus = Thrusting;
 	int8 ThrustStatusInt = static_cast<int8>(ThrustStatus);
-	if ((Thrusting & ThrustStatusInt) == 0)
-	{
-		return; // Not currently thrusting
-	}
 	Thrusting &= ~ThrustStatusInt; // Clear the thrusting status
-	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
-	MovementComp->StopThrust();
-	if (Thrusting == 0)
+
+	if (OldStatus > 0 && Thrusting == 0)
 	{
-		if (LThrust)
-		{
-			LThrust->Deactivate();
-		}
-		if (RThrust)
-		{
-			RThrust->Deactivate();
-		}
+		auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+		MovementComp->StopThrust();
+
+		LThrust->Deactivate();
+		RThrust->Deactivate();
 	}
 }
 
@@ -504,7 +504,7 @@ void ARunnerCharacter::DealBarrierOverlapEnd(UPrimitiveComponent* OverlappedComp
 void ARunnerCharacter::EnterMud()
 {
 	InMud++;
-	
+
 	// 当处于地面上时，进入泥潭触发 slow down
 	auto* RunnerMoveComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
 	auto* FloorActor = RunnerMoveComp->CurrentFloor.HitResult.GetActor();

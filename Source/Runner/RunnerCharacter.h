@@ -94,7 +94,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Skate Input")
 	float GetTurnValue() const;
 	
-	void StartThrust(EThrustSource ThrustStatus);
+	void StartThrust(EThrustSource ThrustStatus, float ThrustTime);
 	void StopThrust(EThrustSource ThrustStatus);
 	void StartSlowDown();
 	void StopSlowDown();
@@ -187,6 +187,8 @@ public:
 	int8 Thrusting = 0;
 	int8 SlowDown = 0;
 	int8 InMud = 0; // 是否在泥潭中
+
+	float FreeThrustTime = 0.0f;
 
 	bool IsInMud() const { return InMud > 0; }
 

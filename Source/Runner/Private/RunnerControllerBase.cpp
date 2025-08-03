@@ -26,12 +26,7 @@ FRotator ARunnerControllerBase::GetControlRotation() const
 
 void ARunnerControllerBase::WhenCountDownOver()
 {
-  Cast<ARunnerCharacter>(GetPawn())->StartThrust(EThrustSource::FreeThrust);
-  FTimerHandle Handler;
-  GetWorld()->GetTimerManager().SetTimer(Handler, [this]() {
-    Cast<ARunnerCharacter>(GetPawn())->StopThrust(EThrustSource::FreeThrust);
-  }, StartThrustTime, false);
-
+  Cast<ARunnerCharacter>(GetPawn())->StartThrust(EThrustSource::FreeThrust, StartThrustTime);
   Cast<URunnerMovementComponent>(Cast<ARunnerCharacter>(GetPawn())->GetCharacterMovement())->SetGameStart();
   
   TActorIterator<AWorldGenerator> It(GetWorld());

@@ -180,14 +180,7 @@ void URunnerMovementComponent::ProcessLandLevel(ELevel LandLevel)
 			case ELevel::Perfect:
 			{
 				Runner->AddGas(GasPercentageWhenPerfect);
-				Runner->StartThrust(EThrustSource::FreeThrust);
-				FTimerHandle ThrustTimerHandle;
-				TWeakObjectPtr<ARunnerCharacter> WeakRunner(Runner);
-				Runner->GetWorld()->GetTimerManager().SetTimer(ThrustTimerHandle, [WeakRunner]() {
-					if (WeakRunner.IsValid())
-					{
-						WeakRunner->StopThrust(EThrustSource::FreeThrust);
-					} }, PerfectThrustSpeedTime, false);
+				Runner->StartThrust(EThrustSource::FreeThrust, PerfectThrustSpeedTime);
 			}
 			break;
 			case ELevel::Good:
