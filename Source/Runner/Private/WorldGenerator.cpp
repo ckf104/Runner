@@ -208,7 +208,9 @@ void AWorldGenerator::UpdateEvilPos(float DeltaTime)
 		auto PlayerTile = GetPlayerTile();
 		auto TileSizeX = CellSize * XCellNumber;
 
-		auto MinPos = double(TileSizeX) * (PlayerTile.X - 1);
+		auto PlayerX = UGameplayStatics::GetPlayerCharacter(this, 0)->GetActorLocation().X;
+		auto DistanceIndex = FMath::Clamp(CurrentDifficulty, 0, EvilMaxDistance.Num() - 1);
+		auto MinPos = PlayerX - EvilMaxDistance[DistanceIndex];
 		auto SpeedIndex = FMath::Clamp(CurrentDifficulty, 0, EvilChaseSpeed.Num() - 1);
 		auto NewEvilPos = EvilPos + (EvilChaseSpeed[SpeedIndex] * DeltaTime);
 		// UE_LOG(LogWorldGenerator, Log, TEXT("Speed %f"), EvilChaseSpeed[SpeedIndex]);
@@ -296,7 +298,7 @@ TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetPMCFromHorizontalPos
 			PMC = NewObject<UProceduralMeshComponent>(NonConstThis, UProceduralMeshComponent::StaticClass(), NAME_None);
 			// UE_LOG(LogWorldGenerator, Warning, TEXT("Creating new PMC for region: %s at index %d, input position: %s"), *Region.ToString(), ReplacableIndex, *Pos.ToString());
 			PMC->bUseAsyncCooking = true; // 重中之重！！
-			PMC->SetCollisionProfileName(TEXT("BlockAll"));
+			PMC->SetCollisionProfileName(TEXT("BlockCamera"));
 			PMC->RegisterComponent();
 			PMC->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
 			ProceduralMeshComp[ReplacableIndex] = PMC; // Replace the PMC at the found index

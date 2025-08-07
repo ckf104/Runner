@@ -24,8 +24,5 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "Runner")
 	void StartCountDown();
 
-	UPROPERTY(EditAnywhere, Category = "Runner")
-	float StartThrustTime = 0.5f;
-
 	FRotator GetControlRotation() const override;
 };

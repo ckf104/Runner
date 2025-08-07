@@ -6,6 +6,7 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
@@ -77,6 +78,7 @@ void AMissile::Tick(float DeltaTime)
 		TrailComp->Deactivate();
 		SphereComp->SetHiddenInGame(false);
 		SphereComp->SetCollisionProfileName("MudSphere");
+		// UGameplayStatics::PlaySoundAtLocation(this, MissileSound, TargetPos);
 
 		APlayerCameraManager::PlayWorldCameraShake(GetWorld(), CameraShakeClass, TargetPos, CameraShakeInnerRadius, CameraShakeOuterRadius, CameraShakeFalloff);
 	}

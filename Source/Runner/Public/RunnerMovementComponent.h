@@ -10,7 +10,6 @@ UENUM(BlueprintType)
 enum class ELevel : uint8
 {
 	Bad,
-	Normal,
 	Good,
 	Perfect,
 };
@@ -84,7 +83,6 @@ public:
 	// 滑板在空中的 Pitch 变化速率
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float PitchChangeSpeedInAir = 20.0f;
-
 
 	// 当 z 方向速度值大于此值时才能够起飞
 	// UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
@@ -172,12 +170,48 @@ public:
 	// 滑板有 Down，Thrust，SlowDown 三种状态，Down 状态影响 Z 方向的速度
 	// SlowDown 和 Thrust 状态影响水平方向的速度，三种状态互不干扰，可以同时存在
 	bool bDown = false;
-	
+
+	bool bHipHop = false; // 是否跳过舞了
+
 	// 有多种来源，因此使用 int8 来表示状态
 	int8 Thrusting = false;
 	int8 SlowDown = false;
 
 	bool bGameStart = false;
+
+	// 音效
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	TObjectPtr<class USoundBase> TakeOffSound;
+
+	// UPROPERTY(EditAnywhere, Category = "Sound")
+	// TObjectPtr<class USoundBase> LandSound;
+
+	// UPROPERTY(EditAnywhere, Category = "Sound")
+	// TObjectPtr<class USoundBase> DownSound;
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	TObjectPtr<class USoundBase> LandSoundByLevel[3]; // Bad, Good, Perfect
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	TObjectPtr<class USoundBase> DamageSound;
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	float LandAudioInterval = 0.5f;
+
+	// UPROPERTY(EditAnywhere, Category = "Sound")
+	// float PlayTakeOffSoundInAirTime = 0.2f;
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	float PlayTakeOffSoundMinHeight = 300.0f;
+
+	float CurrentAudioInterval = 0.0f;
+
+	void OnAudioFinished(class UAudioComponent* AudioComponent) { CurrentAudioInterval = 0.0f; };
+	// 目前的起飞逻辑会有些误判，如果在起飞时播起飞音效会有问题，所以挪到最高点的时候播
+	// void NotifyJumpApex() override;
+
+	// 播放受伤音效
+	void TakeDamage();
 
 protected:
 	void BeginPlay() override;
@@ -205,19 +239,35 @@ protected:
 	float GetMaxSpeed() const override;
 
 public:
-	void StartThrust() {Thrusting++; }
-	void StopThrust() { Thrusting--; ensure(Thrusting >= 0); }
+	void StartThrust() { Thrusting++; }
+	void StopThrust()
+	{
+		Thrusting--;
+		ensure(Thrusting >= 0);
+	}
 	void StartDown();
 	void StopDown();
 	void StartSlowDown() { SlowDown++; }
-	void StopSlowDown() { SlowDown--; ensure(SlowDown >= 0); }
+	void StopSlowDown()
+	{
+		SlowDown--;
+		// ensure(SlowDown >= 0);
+		if (SlowDown < 0)
+		{
+			SlowDown = 0;
+		}
+	}
 	// bool HandleBlockingHit(const FHitResult& Hit);
 
 	void StartFalling(int32 Iterations, float remainingTime, float timeTick, const FVector& Delta, const FVector& subLoc) override;
 	bool CheckFall(const FFindFloorResult& OldFloor, const FHitResult& Hit, const FVector& Delta, const FVector& OldLocation, float remainingTime, float timeTick, int32 Iterations, bool bMustJump) override;
 
 	FVector ConsumeInputVector() override { return bGameStart ? GetOwner()->GetActorForwardVector() : FVector::ZeroVector; };
-	void SetGameStart() { bGameStart = true; Velocity = GetOwner()->GetActorForwardVector() * GameStartVelocity; }
+	void SetGameStart()
+	{
+		bGameStart = true;
+		Velocity = GetOwner()->GetActorForwardVector() * GameStartVelocity;
+	}
 
 	// 用于 coin spawner 那边调用
 	static double CalcStartZVelocity(double Roll, double GroundSpeedSize, double TakeoffSpeedScale, double MaxStartZVelocityInAir);
@@ -228,6 +278,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<class USkeletalMeshComponent> SkateboardMesh;
 
+	class UAudioComponent* LandAudio;
 	class AWorldGenerator* WorldGenerator;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller", meta = (AllowPrivateAccess = "true"))

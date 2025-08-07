@@ -2,6 +2,7 @@
 
 #include "RunnerMovementComponent.h"
 #include "BarrierSpawner.h"
+#include "Components/AudioComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
@@ -13,7 +14,9 @@
 #include "EngineUtils.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/Character.h"
+#include "Kismet/GameplayStatics.h"
 #include "Logging/LogVerbosity.h"
+#include "Math/Color.h"
 #include "Math/RotationMatrix.h"
 #include "Math/UnrealMathUtility.h"
 #include "Runner/RunnerCharacter.h"
@@ -54,6 +57,15 @@ void URunnerMovementComponent::BeginPlay()
 		}
 		return true; // Continue iterating
 	});
+	GetOwner()->ForEachComponent<UAudioComponent>(false, [this](UAudioComponent* Component) {
+		if (Component->GetName().Equals(TEXT("AudioForLand")))
+		{
+			LandAudio = Component;
+			LandAudio->OnAudioFinishedNative.AddUObject(this, &URunnerMovementComponent::OnAudioFinished);
+			return false; // Stop iterating once we find the LandAudio
+		}
+		return true; // Continue iterating
+	});
 
 	if (!SkateboardMesh)
 	{
@@ -80,7 +92,28 @@ void URunnerMovementComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	// 移动后更新滑板的旋转
 	UpdateSkateBoardRotation(DeltaTime);
+	auto OldInAirTime = InAirTime;
 	InAirTime += DeltaTime;
+	// if (OldInAirTime < PlayTakeOffSoundInAirTime && InAirTime >= PlayTakeOffSoundInAirTime)
+	if (!bHipHop)
+	{
+		if (LandAudio && !LandAudio->IsPlaying() && CurrentAudioInterval >= LandAudioInterval)
+		{
+			auto Pos = GetOwner()->GetActorLocation();
+			auto VisualPos = WorldGenerator->GetVisualHeightFromHorizontalPos(FVector2D(Pos));
+			if (Pos.Z >= VisualPos + PlayTakeOffSoundMinHeight)
+			{
+				LandAudio->SetSound(TakeOffSound);
+				LandAudio->Play();
+				Cast<ARunnerCharacter>(GetOwner())->StartDanceMontage();
+				bHipHop = true;
+			}
+			// UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent:: TickComponent: Player Z: %f, Visual Z: %f, Difference: %f"),
+			// 		Pos.Z, VisualPos, Pos.Z - VisualPos);
+		}
+	}
+
+	CurrentAudioInterval += DeltaTime;
 	// UE_LOG(LogRunnerMovement, Log, TEXT("Skateboard Ground Velocity Size: %f, Thrusting: %d, SlowDown: %d, MaxSpeed: %f"), Velocity.Size2D(), Thrusting, SlowDown, GetMaxSpeed());
 }
 
@@ -138,16 +171,53 @@ ELevel URunnerMovementComponent::CalcLandLevel(FRotator TargetRotation) const
 	// return ELevel::Normal;
 }
 
+static FName GetLandText(ELevel LandLevel, int32 PerfectCombo)
+{
+	switch (LandLevel)
+	{
+		case ELevel::Perfect:
+		{
+			if (PerfectCombo == 1)
+			{
+				return FName(TEXT("完美着陆"));
+			}
+			else
+			{
+				FString PerfectComboString = FString::Printf(TEXT("%dX 完美着陆"), PerfectCombo);
+				return FName(*PerfectComboString);
+			}
+		}
+		case ELevel::Good:
+			return FName(TEXT("优秀着陆"));
+		case ELevel::Bad:
+		default:
+			return FName(TEXT("拙劣着陆"));
+	}
+}
+
+static FLinearColor GetTextColor(ELevel LandLevel)
+{
+	switch (LandLevel)
+	{
+		case ELevel::Perfect:
+		case ELevel::Good:
+			return FLinearColor(1.0f, 0.932972f, 0.014806f, 1.0f); // Yellow
+		case ELevel::Bad:
+		default:
+			return FLinearColor::White; // White
+	}
+}
+
 void URunnerMovementComponent::ProcessLanded(const FHitResult& Hit, float remainingTime, int32 Iterations)
 {
-	// TODO
+	bHipHop = false; // 重置跳过舞状态
 	bool bAccuracy = false;
 	LastTickTargetRotation = CalcWakingTargetRotation(bAccuracy);
 
 	// 仅当落到地面上时才处理
+	auto* Runner = Cast<ARunnerCharacter>(GetOwner());
 	if (Hit.GetActor() == WorldGenerator)
 	{
-		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
 		if (Runner->IsInMud())
 		{
 			Runner->StartSlowDown(ESlowDownSource::Mud);
@@ -160,7 +230,8 @@ void URunnerMovementComponent::ProcessLanded(const FHitResult& Hit, float remain
 				LandLevel = CalcLandLevel(LastTickTargetRotation);
 				PerfectCombo = (LandLevel == ELevel::Perfect) ? PerfectCombo + 1 : 0;
 				ProcessLandLevel(LandLevel);
-				Runner->ShowLandUI(LandLevel, PerfectCombo);
+				auto LandText = GetLandText(LandLevel, PerfectCombo);
+				Runner->ShowLandUI(LandText, GetTextColor(LandLevel));
 			}
 		}
 	}
@@ -168,12 +239,22 @@ void URunnerMovementComponent::ProcessLanded(const FHitResult& Hit, float remain
 	InAirTime = 0.0f;
 	StopDown();
 
+	// UGameplayStatics::PlaySound2D(this, LandSound);
+
 	Super::ProcessLanded(Hit, remainingTime, Iterations);
+	Runner->StopActiveMontage(0.2f);
 }
 
 void URunnerMovementComponent::ProcessLandLevel(ELevel LandLevel)
 {
 	auto* Runner = Cast<ARunnerCharacter>(GetOwner());
+	if (LandAudio && !LandAudio->IsPlaying() && CurrentAudioInterval >= LandAudioInterval)
+	{
+		auto State = LandAudio->GetPlayState();
+		UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent::ProcessLandLevel: Play Land Sound for Level %d, State %s"), static_cast<int32>(LandLevel), *UEnum::GetValueAsString(State));
+		LandAudio->SetSound(LandSoundByLevel[static_cast<int32>(LandLevel)]);
+		LandAudio->Play();
+	}
 	if (Runner)
 	{
 		switch (LandLevel)
@@ -204,6 +285,25 @@ void URunnerMovementComponent::ProcessLandLevel(ELevel LandLevel)
 		}
 	}
 }
+
+void URunnerMovementComponent::TakeDamage()
+{
+	// 受伤音效会打断其它角色音效
+	LandAudio->SetSound(DamageSound);
+	LandAudio->Play();
+}
+
+//void URunnerMovementComponent::NotifyJumpApex()
+//{
+//	UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent::NotifyJumpApex called, InAirTime: %f, PlayTakeOffSoundInAirTime: %f, CurrentAudioInterval: %f"), InAirTime, PlayTakeOffSoundInAirTime, CurrentAudioInterval);
+//	if (LandAudio && !LandAudio->IsPlaying() && InAirTime >= PlayTakeOffSoundInAirTime && CurrentAudioInterval >= LandAudioInterval)
+//	{
+//		LandAudio->SetSound(TakeOffSound);
+//		LandAudio->Play();
+//	}
+//
+//	Super::NotifyJumpApex();
+//}
 
 FVector URunnerMovementComponent::NewFallVelocity(const FVector& InitialVelocity, const FVector& Gravity, float DeltaTime) const
 {
@@ -522,6 +622,9 @@ void URunnerMovementComponent::StartFalling(int32 Iterations, float remainingTim
 {
 	InAirTime = 0.0f; // 重置空中时间
 	Velocity.Z = CalcStartZVelocity();
+	// bNotifyApex = true; // 确保在开始下落时通知跳跃顶点
+
+	// UGameplayStatics::PlaySound2D(this, TakeOffSound);
 	// UE_LOG(LogRunnerMovement, Warning, TEXT("URunnerMovementComponent::StartFalling: Start Falling! New Z Velocity: %f, Actor Location: %s"), Velocity.Z, *GetOwner()->GetActorLocation().ToString());
 	Super::StartFalling(Iterations, remainingTime, timeTick, Delta, subLoc);
 	// UE_LOG(LogRunnerMovement, Warning, TEXT("URunnerMovementComponent::StartFalling: Start Falling Call end! New Z Velocity: %f, Actor Location: %s"), Velocity.Z, *GetOwner()->GetActorLocation().ToString());
@@ -611,6 +714,7 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 		{
 			Runner->StopSlowDown();
 		}
+		// UE_LOG(LogRunnerMovement, Warning, TEXT("ShouldCatchAir: StartFalling!"));
 		return true;
 	}
 	else if (!bUseCurvatureForTakeoff && (NewDot - OldDot) >= DeltaNormalThreshold)
@@ -1401,6 +1505,7 @@ void URunnerMovementComponent::StartDown()
 		bDown = true;
 		Velocity.Z = FMath::Max(Velocity.Z - DownReduceZVelocity, MaxZVelocityInAir);
 	}
+	Cast<ARunnerCharacter>(GetOwner())->StopActiveMontage(0.2f);
 }
 
 void URunnerMovementComponent::StopDown()

@@ -262,6 +262,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Evil Chase")
 	TArray<float> EvilChaseSpeed;
 
+	UPROPERTY(EditAnywhere, Category = "Evil Chase")
+	TArray<float> EvilMaxDistance;
+
 	double GetEvilPos() { return EvilPos; }
 	void SetGameStart() { bGameStart = true; }
 

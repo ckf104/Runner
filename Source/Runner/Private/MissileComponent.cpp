@@ -68,6 +68,10 @@ void UMissileComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	auto* Character = UGameplayStatics::GetPlayerCharacter(this, 0);		
+	if (Character == nullptr)
+	{
+		return;
+	}
 	auto CurrentPos = Character->GetActorLocation().X;
 
 	auto* WorldGenerator = Cast<AWorldGenerator>(GetOwner());

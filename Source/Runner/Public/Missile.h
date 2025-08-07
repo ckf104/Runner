@@ -45,6 +45,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Missile")
 	TSubclassOf<class UCameraShakeBase> CameraShakeClass;
 
+	// 导弹频繁发射的情况下每次爆炸都发出声音有点噪音污染了
+	// UPROPERTY(EditAnywhere, Category = "Missile")
+	// TObjectPtr<class USoundBase> MissileSound;
+
 private:
 	float CurrentTime = 0.0f;
 

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "HAL/Platform.h"
+#include "Math/Color.h"
 #include "Public/RunnerMovementComponent.h"
 #include "Logging/LogMacros.h"
 #include "Templates/SubclassOf.h"
@@ -28,6 +29,14 @@ enum class ESlowDownSource : int8
 {
 	Mud = 1,
 	BadLand = 2
+};
+
+enum class EHitSource : int8
+{
+	None,
+	Laser,
+	Missile,
+	Default
 };
 
 UCLASS(config = Game)
@@ -73,7 +82,8 @@ class ARunnerCharacter : public ACharacter
 public:
 	ARunnerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
-	void TakeHitImpact(bool bOnlyUI);
+	void GenerateHitSound(EHitSource HitSource);
+	void TakeHitImpact(bool bOnlyUI, EHitSource HitSource);
 	void NotifyActorBeginOverlap(AActor* OtherActor) override;
 	void NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit) override;
 
@@ -83,13 +93,13 @@ public:
 	void DealBarrierOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
 			UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep,
 			FHitResult const& SweepResult);
-	
+
 	UFUNCTION()
 	void DealBarrierOverlapEnd(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
 			UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
 	void EnterMud();
-	void OutOfMud();	
+	void OutOfMud();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float TurnSpeedScale = 0.2f;
@@ -99,7 +109,7 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Skate Input")
 	float GetTurnValue() const;
-	
+
 	void StartThrust(EThrustSource ThrustStatus, float ThrustTime);
 	void StopThrust(EThrustSource ThrustStatus);
 	void StartSlowDown(ESlowDownSource SlowDownStatus);
@@ -130,6 +140,35 @@ public:
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
+	// Sound
+	// UPROPERTY(EditAnywhere, Category = "Sound")
+	// TObjectPtr<class USoundBase> EngineSound;
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	TObjectPtr<class USoundBase> LaserSound;
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	TObjectPtr<class USoundBase> MissileSound;
+
+	// UPROPERTY(EditAnywhere, Category = "Sound")
+	// TObjectPtr<class USoundBase> CoinSound;
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	TObjectPtr<class USoundBase> DefaultSound;
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	TObjectPtr<class UAnimMontage> DanceMontage;
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	float MontagePlayRate = 2.0f;
+
+	void StartDanceMontage();
+	void OnMontageStartBlendOut(class UAnimMontage* Montage, bool bInterrupted);
+	void StopActiveMontage(float BlendOutTime);
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	float MaxDistanceForEvilSound = 0.1f;
+
 	// 生命值和氮气
 	UPROPERTY(BlueprintReadWrite, Category = "Health")
 	float Health;
@@ -146,6 +185,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
 	float MaxMana = 100.0f;
 
+	UPROPERTY(EditAnywhere, Category = "Health")
+	float GasPercentageWhenHipHop = 0.2f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
 	float InitialManaScale = 1.0f;
 
@@ -161,13 +203,16 @@ public:
 	float HitSlomoTime = 0.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
-	float CoinHealHealth = 0.5f;  // 每个金币回复的生命值
+	float CoinHealHealth = 0.5f; // 每个金币回复的生命值
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
 	int32 FlipTime = 4;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
 	float FlipInterval = 0.5f;
+
+	UPROPERTY(EditAnywhere, Category = "Runner")
+	float StartThrustTime = 0.5f;
 
 	void UpdateFlicker(float Delta);
 
@@ -177,14 +222,14 @@ public:
 
 	// 触发伤害的间隔时间
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evil Chase")
-	float DamageInterval = 1.0f; 
+	float DamageInterval = 1.0f;
 
 	void CheckEvilChase(float Delta);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug")
 	bool bInfiniteHealth = false;
 
-	bool bFlicker = false;  // 当前是否处于无敌状态
+	bool bFlicker = false; // 当前是否处于无敌状态
 	bool bMaterialFlipped = false;
 
 	float CurrentFlickerTime = 0.0f;
@@ -201,9 +246,11 @@ public:
 
 	bool IsInMud() const { return InMud > 0; }
 
+	void GameStart();
+
 	// UI Settings
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")
-	void ShowLandUI(ELevel LandLevel, int32 PerfectComboNumber);
+	void ShowLandUI(FName LandText, FLinearColor TextColor);
 
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "UI")
 	void ShowDamageUI(bool bOnlyUI);
@@ -232,8 +279,14 @@ public:
 	class UNiagaraComponent* LThrust;
 	class UNiagaraComponent* RThrust;
 	class UNiagaraComponent* SlowDownComp;
+	class UAudioComponent* EngineSoundComp;
+	class UAudioComponent* DamageAudio;
+	class UAudioComponent* CoinAudio;
+	class UAudioComponent* EvilAudio;
 
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	bool bAllowInterruptCoinSound = true;
 
 private:
-		class AWorldGenerator* WorldGenerator = nullptr;
+	class AWorldGenerator* WorldGenerator = nullptr;
 };

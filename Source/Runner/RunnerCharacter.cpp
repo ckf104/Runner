@@ -1,7 +1,9 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "RunnerCharacter.h"
+#include "Animation/AnimInstance.h"
 #include "Blueprint/UserWidget.h"
+#include "Components/AudioComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/LocalPlayer.h"
@@ -13,7 +15,6 @@
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
-#include "HealthBarWidget.h"
 #include "InputActionValue.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -101,6 +102,26 @@ void ARunnerCharacter::BeginPlay()
 			Component->OnComponentBeginOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlap);
 		}
 	});
+
+	ForEachComponent<UAudioComponent>(false, [this](UAudioComponent* Component) {
+		if (Component->GetName().Equals(TEXT("EngineAudio")))
+		{
+			EngineSoundComp = Component;
+		}
+		else if (Component->GetName().Equals(TEXT("CoinAudio")))
+		{
+			CoinAudio = Component;
+		}
+		else if (Component->GetName().Equals(TEXT("DamageAudio")))
+		{
+			DamageAudio = Component;
+		}
+		else if (Component->GetName().Equals(TEXT("EvilAudio")))
+		{
+			EvilAudio = Component;
+		}
+	});
+
 	GetCapsuleComponent()->OnComponentBeginOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlap);
 	GetCapsuleComponent()->OnComponentEndOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlapEnd);
 	InitUI();
@@ -111,6 +132,14 @@ void ARunnerCharacter::BeginPlay()
 	{
 		WorldGenerator = *It;
 	}
+}
+
+void ARunnerCharacter::GameStart()
+{
+	StartThrust(EThrustSource::FreeThrust, StartThrustTime);
+	GameUIWidget->SetGameStart(true);
+	Cast<URunnerMovementComponent>(GetCharacterMovement())->SetGameStart();
+	EvilAudio->Play();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -205,9 +234,18 @@ void ARunnerCharacter::CheckEvilChase(float Delta)
 	auto TileX = double(WorldGenerator->XCellNumber) * WorldGenerator->CellSize;
 	auto PlayerPos = GetActorLocation().X / TileX;
 	GetMesh()->SetScalarParameterValueOnMaterials("PlayerPos", PlayerPos);
-	auto EvilPos = WorldGenerator->GetEvilPos();
+	auto EvilPos = WorldGenerator->GetEvilPos() / TileX;
 
-	if (EvilPos / TileX - PlayerPos < DeltaTakeDamge)
+	auto TakeDamagePos = EvilPos - DeltaTakeDamge;
+	auto NoEvilSoundPos = EvilPos + MaxDistanceForEvilSound;
+	auto VolumeMultiplier = (NoEvilSoundPos - PlayerPos) / (MaxDistanceForEvilSound + DeltaTakeDamge);
+	VolumeMultiplier = FMath::Clamp(VolumeMultiplier, 0.0f, 1.0f);
+	if (EvilAudio)
+	{
+		EvilAudio->SetVolumeMultiplier(VolumeMultiplier);
+	}
+
+	if (EvilPos - PlayerPos < DeltaTakeDamge)
 	{
 		CurrentDamageInterval = 0.5f;
 	}
@@ -218,7 +256,7 @@ void ARunnerCharacter::CheckEvilChase(float Delta)
 		{
 			UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::Tick - Taking damage, Evil Pos %f, Player Pos %f"), EvilPos, PlayerPos);
 			CurrentDamageInterval -= DamageInterval;
-			TakeHitImpact(true);
+			TakeHitImpact(true, EHitSource::None);
 		}
 	}
 }
@@ -348,6 +386,12 @@ void ARunnerCharacter::StartThrust(EThrustSource ThrustStatus, float ThrustTime)
 		// 从 non thrust 切换到 thrust 状态
 		LThrust->Activate();
 		RThrust->Activate();
+		// EngineSoundComp->Activate();
+		if (EngineSoundComp)
+		{
+			// EngineSoundComp->SetSound(EngineSound);
+			EngineSoundComp->Play();
+		}
 	}
 }
 
@@ -365,6 +409,12 @@ void ARunnerCharacter::StopThrust(EThrustSource ThrustStatus)
 
 		LThrust->Deactivate();
 		RThrust->Deactivate();
+		// EngineSoundComp->Deactivate();
+		if (EngineSoundComp)
+		{
+			// EngineSoundComp->SetSound(EngineSound);
+			EngineSoundComp->FadeOut(0.5f, 0.0f);
+		}
 	}
 }
 
@@ -390,11 +440,12 @@ void ARunnerCharacter::StartSlowDown(ESlowDownSource SlowDownStatus)
 void ARunnerCharacter::StopSlowDown()
 {
 	SlowDown--;
-	ensure(SlowDown >= 0);
+	// ensure(SlowDown >= 0);
 	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
 	MovementComp->StopSlowDown();
-	if (SlowDown == 0)
+	if (SlowDown <= 0)
 	{
+		SlowDown = 0;
 		SlowDownComp->Deactivate();
 	}
 }
@@ -415,13 +466,61 @@ void ARunnerCharacter::InitUI()
 	}
 }
 
-void ARunnerCharacter::TakeHitImpact(bool bOnlyUI)
+void ARunnerCharacter::StartDanceMontage()
+{
+	auto* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance)
+	{
+		AnimInstance->Montage_Play(DanceMontage, MontagePlayRate);
+		auto* Delegate = AnimInstance->Montage_GetBlendingOutDelegate(DanceMontage);
+		if (Delegate)
+		{
+			Delegate->BindUObject(this, &ARunnerCharacter::OnMontageStartBlendOut);
+		}
+		else
+		{
+			UE_LOG(LogRunnerCharacter, Warning, TEXT("ARunnerCharacter::StartDanceMontage: Failed to get Montage Blending Out Delegate!"));
+		}
+	}
+}
+
+void ARunnerCharacter::OnMontageStartBlendOut(class UAnimMontage* Montage, bool bInterrupted)
+{
+	auto* MoveComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+	if (MoveComp->IsFalling())
+	{
+		if (bInterrupted)
+		{
+			ShowLandUI(FName(TEXT("中断杂耍")), FLinearColor::White);
+		}
+		else
+		{
+			ShowLandUI(FName(TEXT("杂耍天才")), FLinearColor(1.0f, 0.932972f, 0.014806f, 1.0f));
+			AddGas(GasPercentageWhenHipHop);
+			GameUIWidget->AddScore(400.0f);
+		}
+	}
+}
+
+void ARunnerCharacter::StopActiveMontage(float BlendOutTime)
+{
+	auto* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance)
+	{
+		AnimInstance->Montage_Stop(BlendOutTime, DanceMontage);
+	}
+}
+
+void ARunnerCharacter::TakeHitImpact(bool bOnlyUI, EHitSource HitSource)
 {
 	// 当处于顿帧或者闪烁状态时，不处理邪气以外的伤害
 	if (!bOnlyUI && (bFlicker || CustomTimeDilation == HitSlomo))
 	{
 		return;
 	}
+
+	GenerateHitSound(HitSource);
+	StopActiveMontage(0.2f);
 
 	if (GameUIWidget)
 	{
@@ -463,6 +562,26 @@ void ARunnerCharacter::TakeHitImpact(bool bOnlyUI)
 	}
 }
 
+void ARunnerCharacter::GenerateHitSound(EHitSource HitSource)
+{
+	if (HitSource == EHitSource::Laser)
+	{
+		DamageAudio->SetSound(LaserSound);
+		DamageAudio->Play();
+	}
+	else if (HitSource == EHitSource::Missile && MissileSound)
+	{
+		DamageAudio->SetSound(MissileSound);
+		DamageAudio->Play();
+	}
+	else if (HitSource == EHitSource::Default)
+	{
+		DamageAudio->SetSound(DefaultSound);
+		DamageAudio->Play();
+	}
+	Cast<URunnerMovementComponent>(GetCharacterMovement())->TakeDamage();
+}
+
 // defered movement update 中会检查 collision channel 是否仍然为 block!
 void ARunnerCharacter::NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit)
 {
@@ -493,6 +612,10 @@ void ARunnerCharacter::DealBarrierOverlap(UPrimitiveComponent* OverlappedCompone
 		Health += CoinHealHealth;
 		Health = FMath::Min(Health, MaxHealth);
 		GameUIWidget->AddOneCoin(CoinHealHealth / MaxHealth);
+		if (!CoinAudio->IsPlaying() || bAllowInterruptCoinSound)
+		{
+			CoinAudio->Play();
+		}
 	}
 	else if (OtherComp->ComponentHasTag("Mud"))
 	{
@@ -501,7 +624,17 @@ void ARunnerCharacter::DealBarrierOverlap(UPrimitiveComponent* OverlappedCompone
 	}
 	else
 	{
-		TakeHitImpact(false);
+		auto HitSource = EHitSource::Default;
+		if (OtherActor->ActorHasTag("Laser"))
+		{
+			HitSource = EHitSource::Laser;
+		}
+		else if (OtherActor->ActorHasTag("Missile"))
+		{
+			HitSource = EHitSource::Missile;
+		}
+
+		TakeHitImpact(false, HitSource);
 	}
 }
 

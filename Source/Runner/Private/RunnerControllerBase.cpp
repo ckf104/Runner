@@ -28,9 +28,7 @@ FRotator ARunnerControllerBase::GetControlRotation() const
 void ARunnerControllerBase::WhenCountDownOver()
 {
   auto* Runner = Cast<ARunnerCharacter>(GetPawn());
-  Runner->StartThrust(EThrustSource::FreeThrust, StartThrustTime);
-  Runner->GameUIWidget->SetGameStart(true);
-  Cast<URunnerMovementComponent>(Runner->GetCharacterMovement())->SetGameStart();
+  Runner->GameStart();
 
   TActorIterator<AWorldGenerator> It(GetWorld());
   if (It)
