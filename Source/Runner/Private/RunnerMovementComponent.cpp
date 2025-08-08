@@ -85,6 +85,8 @@ void URunnerMovementComponent::BeginPlay()
 	{
 		// UE_LOG(LogRunnerMovement, Warning, TEXT("ARunnerCharacter: WorldGenerator not found!"));
 	}
+
+	// Cast<ARunnerCharacter>(GetOwner())->OnCharacterMovementUpdated.AddDynamic(this, &URunnerMovementComponent::UFuncOnMovementUpdated);
 }
 
 void URunnerMovementComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -116,6 +118,25 @@ void URunnerMovementComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 	CurrentAudioInterval += DeltaTime;
 	// UE_LOG(LogRunnerMovement, Log, TEXT("Skateboard Ground Velocity Size: %f, Thrusting: %d, SlowDown: %d, MaxSpeed: %f"), Velocity.Size2D(), Thrusting, SlowDown, GetMaxSpeed());
 }
+
+FVector URunnerMovementComponent::ConsumeInputVector()
+{
+	if (bGameStart)
+	{
+		if (!bDisableAutoMove)
+		{
+			return GetOwner()->GetActorForwardVector();
+		}
+		else
+		{
+
+			auto Ret = Super::ConsumeInputVector();
+			UE_LOG(LogRunnerMovement, Log, TEXT("ConsumeInputVector: %s"), *Ret.ToString());
+			return Ret;
+		}
+	}
+	return FVector::ZeroVector;
+};
 
 ELevel URunnerMovementComponent::CalcLandLevel(FRotator TargetRotation) const
 {
@@ -293,7 +314,7 @@ void URunnerMovementComponent::TakeDamage()
 	LandAudio->Play();
 }
 
-//void URunnerMovementComponent::NotifyJumpApex()
+// void URunnerMovementComponent::NotifyJumpApex()
 //{
 //	UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent::NotifyJumpApex called, InAirTime: %f, PlayTakeOffSoundInAirTime: %f, CurrentAudioInterval: %f"), InAirTime, PlayTakeOffSoundInAirTime, CurrentAudioInterval);
 //	if (LandAudio && !LandAudio->IsPlaying() && InAirTime >= PlayTakeOffSoundInAirTime && CurrentAudioInterval >= LandAudioInterval)
@@ -303,7 +324,7 @@ void URunnerMovementComponent::TakeDamage()
 //	}
 //
 //	Super::NotifyJumpApex();
-//}
+// }
 
 FVector URunnerMovementComponent::NewFallVelocity(const FVector& InitialVelocity, const FVector& Gravity, float DeltaTime) const
 {
@@ -1516,4 +1537,20 @@ void URunnerMovementComponent::StopDown()
 		// TODO：要不要恢复速度？
 		// Velocity.Z = FMath::Max(Velocity.Z + DownReduceZVelocity, MaxZVelocityInAir);
 	}
+}
+
+void URunnerMovementComponent::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity)
+{
+	Super::OnMovementUpdated(DeltaSeconds, OldLocation, OldVelocity);
+
+	// UE_LOG(LogRunnerMovement, Log, TEXT("OnMovementUpdated, OldLocation: %s, OldVelocity: %s, NewLocation: %s, NewVelocity: %s"),
+	// 	*OldLocation.ToString(), *OldVelocity.ToString(),
+	// 	*UpdatedComponent->GetComponentLocation().ToString(), *Velocity.ToString());
+}
+
+void URunnerMovementComponent::UFuncOnMovementUpdated(float DeltaSeconds, FVector OldLocation, FVector OldVelocity)
+{
+	// UE_LOG(LogRunnerMovement, Log, TEXT("UFuncOnMovementUpdated, OldLocation: %s, OldVelocity: %s, NewLocation: %s, NewVelocity: %s"),
+	// 	*OldLocation.ToString(), *OldVelocity.ToString(),
+	// 	*UpdatedComponent->GetComponentLocation().ToString(), *Velocity.ToString());
 }

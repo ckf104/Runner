@@ -145,6 +145,34 @@ void AISMClusterSpawner::RemoveTile(FInt32Point Tile)
 	}
 }
 
+void AISMClusterSpawner::MoveWorldOrigin(int32 TileXOffset, double WorldOffsetX)
+{
+	TMap<FInt32Point, TArray<FInt32Point>> NewTileInstanceIndices;
+	NewTileInstanceIndices.Reserve(TileInstanceIndices.Num());
+
+	for (auto& It : TileInstanceIndices)
+	{
+		auto NewKey = FInt32Point(It.Key.X - TileXOffset, It.Key.Y);
+		NewTileInstanceIndices.Add(NewKey, MoveTemp(It.Value));
+	}
+
+	TileInstanceIndices = MoveTemp(NewTileInstanceIndices);
+
+	// TODO: 是否需要处理 CachedBarriers？
+	for (int32 MeshIndex = 0; MeshIndex < ISMComponents.Num(); ++MeshIndex)
+	{
+		UInstancedStaticMeshComponent* ISMComponent = ISMComponents[MeshIndex];
+		for (int32 InstanceIndex = 0; InstanceIndex < ISMComponent->GetNumInstances(); ++InstanceIndex)
+		{
+			FTransform OutInstanceTransform;
+			ISMComponent->GetInstanceTransform(InstanceIndex, OutInstanceTransform, false);
+			OutInstanceTransform.SetTranslation(OutInstanceTransform.GetTranslation() - FVector(WorldOffsetX, 0.0, 0.0));
+			ISMComponent->UpdateInstanceTransform(InstanceIndex, OutInstanceTransform, false, false, true);
+		}
+		ISMComponent->MarkRenderStateDirty();
+	}
+}
+
 #if WITH_EDITOR
 
 void AISMClusterSpawner::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)

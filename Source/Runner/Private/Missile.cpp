@@ -40,6 +40,14 @@ void AMissile::PostInitProperties()
 	Super::PostInitProperties();
 }
 
+void AMissile::OnWorldOriginChanged(double XOffset)
+{
+	AddActorWorldOffset(FVector(-XOffset, 0.0f, 0.0f), false);
+	DecalComp->AddWorldOffset(FVector(-XOffset, 0.0f, 0.0f));	
+	TargetPos += FVector(-XOffset, 0.0f, 0.0f);
+	StartPos += FVector(-XOffset, 0.0f, 0.0f);
+}
+
 // Called when the game starts or when spawned
 void AMissile::BeginPlay()
 {

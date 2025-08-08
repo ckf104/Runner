@@ -213,6 +213,9 @@ public:
 	// 播放受伤音效
 	void TakeDamage();
 
+	// 不会随着平台移动而移动
+	void UpdateBasedMovement(float DeltaSeconds) override {};
+
 protected:
 	void BeginPlay() override;
 
@@ -238,6 +241,11 @@ protected:
 
 	float GetMaxSpeed() const override;
 
+	void OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity) override;
+
+	UFUNCTION()
+	void UFuncOnMovementUpdated(float DeltaSeconds, FVector OldLocation, FVector OldVelocity);
+
 public:
 	void StartThrust() { Thrusting++; }
 	void StopThrust()
@@ -262,12 +270,15 @@ public:
 	void StartFalling(int32 Iterations, float remainingTime, float timeTick, const FVector& Delta, const FVector& subLoc) override;
 	bool CheckFall(const FFindFloorResult& OldFloor, const FHitResult& Hit, const FVector& Delta, const FVector& OldLocation, float remainingTime, float timeTick, int32 Iterations, bool bMustJump) override;
 
-	FVector ConsumeInputVector() override { return bGameStart ? GetOwner()->GetActorForwardVector() : FVector::ZeroVector; };
+	FVector ConsumeInputVector() override;
 	void SetGameStart()
 	{
 		bGameStart = true;
 		Velocity = GetOwner()->GetActorForwardVector() * GameStartVelocity;
 	}
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug")
+	bool bDisableAutoMove = false; // 是否禁用自动移动
 
 	// 用于 coin spawner 那边调用
 	static double CalcStartZVelocity(double Roll, double GroundSpeedSize, double TakeoffSpeedScale, double MaxStartZVelocityInAir);

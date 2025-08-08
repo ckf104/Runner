@@ -25,10 +25,12 @@
 #include "Math/Color.h"
 #include "Math/MathFwd.h"
 #include "Misc/AssertionMacros.h"
+#include "Misc/CoreMiscDefines.h"
 #include "MissileComponent.h"
 #include "ProceduralMeshComponent.h"
 #include "Runner/RunnerGameMode.h"
 #include "Templates/Tuple.h"
+#include "Templates/UnrealTemplate.h"
 #include "UObject/ObjectPtr.h"
 #include <algorithm>
 #include <cstdint>
@@ -67,6 +69,8 @@ private:
 	/** The function to execute on the Task Graph. */
 	TUniqueFunction<void()> Function;
 };
+
+static constexpr int32 MaxForwardTileNumber = 3; // 前方最多生成的 Tile 数量
 
 // 整体的结构是这样：最小的单元是一个 Cell，它由两个三角形组成，XCellNumber * YCellNumber 个 Cell
 // 定义组成了一个 Tile。Tile 是 ProeduralMeshComp 管理的基本单位。但我发现当生成的顶点坐标距离 ProceduralMeshComp
@@ -139,6 +143,16 @@ void AWorldGenerator::BeginPlay()
 	UE_LOG(LogWorldGenerator, Log, TEXT("RandomSeed, Theta: %d, Offset: %s, BarrierRandom: %d"),
 			Theta, *PerlinOffset.ToString(), BarrierRandom);
 
+	// 创建 ProceduralMeshComponent
+	for (int32 i = 0; i < MaxRegionCount; ++i)
+	{
+		ProceduralMeshComp[i] = NewObject<UProceduralMeshComponent>(this, UProceduralMeshComponent::StaticClass(), NAME_None);
+		// UE_LOG(LogWorldGenerator, Warning, TEXT("Creating new PMC for region: %s at index %d, input position: %s"), *Region.ToString(), ReplacableIndex, *Pos.ToString());
+		ProceduralMeshComp[i]->bUseAsyncCooking = true; // 重中之重！！
+		ProceduralMeshComp[i]->SetCollisionProfileName(TEXT("BlockCamera"));
+		ProceduralMeshComp[i]->RegisterComponent();
+		ProceduralMeshComp[i]->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
+	}
 	Super::BeginPlay();
 }
 
@@ -184,6 +198,8 @@ void AWorldGenerator::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void AWorldGenerator::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	// World 移动之后才调用 UpdateEvilPos
+	auto bMoved = ConditionalMoveWorldOrigin();
 	if (bGameStart)
 	{
 		WorldTime += DeltaTime; // Update world time
@@ -193,31 +209,31 @@ void AWorldGenerator::Tick(float DeltaTime)
 		}
 		UpdateEvilPos(DeltaTime);
 	}
-	GenerateNewTiles();
+	if (!bMoved)
+	{
+		GenerateNewTiles();
+	}
 
-	// if (bDebugMode)
-	// {
-	// 	DebugPrint();
-	// }
+	if (bDebugPrint)
+	{
+		DebugPrint();
+	}
 }
 
 void AWorldGenerator::UpdateEvilPos(float DeltaTime)
 {
-	if (!bDebugMode)
-	{
-		auto PlayerTile = GetPlayerTile();
-		auto TileSizeX = CellSize * XCellNumber;
+	auto PlayerTile = GetPlayerTile();
+	auto TileSizeX = CellSize * XCellNumber;
 
-		auto PlayerX = UGameplayStatics::GetPlayerCharacter(this, 0)->GetActorLocation().X;
-		auto DistanceIndex = FMath::Clamp(CurrentDifficulty, 0, EvilMaxDistance.Num() - 1);
-		auto MinPos = PlayerX - EvilMaxDistance[DistanceIndex];
-		auto SpeedIndex = FMath::Clamp(CurrentDifficulty, 0, EvilChaseSpeed.Num() - 1);
-		auto NewEvilPos = EvilPos + (EvilChaseSpeed[SpeedIndex] * DeltaTime);
-		// UE_LOG(LogWorldGenerator, Log, TEXT("Speed %f"), EvilChaseSpeed[SpeedIndex]);
-		EvilPos = FMath::Max(MinPos, NewEvilPos);
+	auto PlayerX = UGameplayStatics::GetPlayerCharacter(this, 0)->GetActorLocation().X;
+	auto DistanceIndex = FMath::Clamp(CurrentDifficulty, 0, EvilMaxDistance.Num() - 1);
+	auto MinPos = PlayerX - EvilMaxDistance[DistanceIndex];
+	auto SpeedIndex = FMath::Clamp(CurrentDifficulty, 0, EvilChaseSpeed.Num() - 1);
+	auto NewEvilPos = EvilPos + (EvilChaseSpeed[SpeedIndex] * DeltaTime);
+	// UE_LOG(LogWorldGenerator, Log, TEXT("Speed %f"), EvilChaseSpeed[SpeedIndex]);
+	EvilPos = FMath::Max(MinPos, NewEvilPos);
 
-		UKismetMaterialLibrary::SetScalarParameterValue(this, EvilChaseMaterialCollection, "EvilPos", float(EvilPos / TileSizeX));
-	}
+	UKismetMaterialLibrary::SetScalarParameterValue(this, EvilChaseMaterialCollection, "EvilPos", float(EvilPos / TileSizeX));
 }
 void AWorldGenerator::DebugPrint() const
 {
@@ -243,7 +259,11 @@ void AWorldGenerator::DebugPrint() const
 
 	UProceduralMeshComponent* PMC = nullptr;
 	int32 PMCIndex = -1;
-	Tie(PMC, PMCIndex) = GetPMCFromHorizontalPos(FVector2D(Pos.X, Pos.Y));
+	Tie(PMC, PMCIndex) = GetPMCFromTile(Tile);
+	if (PMCIndex == INDEX_NONE)
+	{
+		return;
+	}
 
 	auto MeshSection = TileMap[PMCIndex].Find(Tile);
 	if (MeshSection == INDEX_NONE)
@@ -268,86 +288,99 @@ void AWorldGenerator::DebugPrint() const
 	auto UV2 = MeshInfo->ProcVertexBuffer[V2].UV0;
 	auto UV3 = MeshInfo->ProcVertexBuffer[V3].UV0;
 
-	// UE_LOG(LogWorldGenerator, Log, TEXT("Player Position: %s, V1 Pos: %s, V1 UV: %s, V2 Pos: %s, V2 UV: %s, V3 Pos: %s, V3 UV: %s"),
-	// 		*Pos.ToString(), *Vertex1.ToString(), *UV1.ToString(), *Vertex2.ToString(), *UV2.ToString(), *Vertex3.ToString(), *UV3.ToString());
+	UE_LOG(LogWorldGenerator, Log, TEXT("Player Position: %s, V1 Pos: %s, V1 UV: %s, V2 Pos: %s, V2 UV: %s, V3 Pos: %s, V3 UV: %s"),
+			*Pos.ToString(), *Vertex1.ToString(), *UV1.ToString(), *Vertex2.ToString(), *UV2.ToString(), *Vertex3.ToString(), *UV3.ToString());
 }
 
-TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetPMCFromHorizontalPos(FVector2D Pos) const
+TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetPMCFromTile(FInt32Point Tile) const
 {
-	FInt32Point Region = GetRegionFromHorizontalPos(Pos);
-	int32 ReplacableIndex = -1;
 	for (int32 i = 0; i < MaxRegionCount; ++i)
 	{
-		UProceduralMeshComponent* PMC = ProceduralMeshComp[i];
-		if (!PMC || PMC->GetNumSections() == 0)
+		if (TileMap[i].Contains(Tile))
 		{
-			ReplacableIndex = i;
-		}
-		else if (GetRegionFromPMC(PMC) == Region)
-		{
-			VersionNumber[i] = ++CurrentVersionIndex; // Update version number
-			return { PMC, i };												// Return the existing PMC for this region
+			return { ProceduralMeshComp[i], i };
 		}
 	}
-	if (ReplacableIndex != -1)
-	{
-		auto* NonConstThis = const_cast<AWorldGenerator*>(this);
-		UProceduralMeshComponent* PMC = ProceduralMeshComp[ReplacableIndex];
-		if (!PMC)
-		{
-			PMC = NewObject<UProceduralMeshComponent>(NonConstThis, UProceduralMeshComponent::StaticClass(), NAME_None);
-			// UE_LOG(LogWorldGenerator, Warning, TEXT("Creating new PMC for region: %s at index %d, input position: %s"), *Region.ToString(), ReplacableIndex, *Pos.ToString());
-			PMC->bUseAsyncCooking = true; // 重中之重！！
-			PMC->SetCollisionProfileName(TEXT("BlockCamera"));
-			PMC->RegisterComponent();
-			PMC->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
-			ProceduralMeshComp[ReplacableIndex] = PMC; // Replace the PMC at the found index
-		}
-		PMC->SetWorldLocation(FVector(Region.X * RegionSize, Region.Y * RegionSize, 0.0f));
+	return { nullptr, INDEX_NONE };
+}
 
-		VersionNumber[ReplacableIndex] = ++CurrentVersionIndex; // Update version number
-		return { PMC, ReplacableIndex };
-	}
-	else
-	{
-		int64 MinVersion = INT64_MAX;
-		for (int32 i = 0; i < MaxRegionCount; ++i)
-		{
-			if (VersionNumber[i] < MinVersion)
-			{
-				MinVersion = VersionNumber[i];
-				ReplacableIndex = i;
-			}
-		}
-		UProceduralMeshComponent* PMC = ProceduralMeshComp[ReplacableIndex];
-		auto OldRegion = GetRegionFromPMC(PMC);
-		// UE_LOG(LogWorldGenerator, Warning, TEXT("Replacing PMC for region: %s with new region: %s at index %d, input position: %s"),
-		// 		*OldRegion.ToString(), *Region.ToString(), ReplacableIndex, *Pos.ToString());
-		PMC->ClearAllMeshSections();
-		PMC->SetWorldLocation(FVector(Region.X * RegionSize, Region.Y * RegionSize, 0.0f));
-
-		for (auto Tile : TileMap[ReplacableIndex])
-		{
-			for (ABarrierSpawner* Spawner : BarrierSpawners)
-			{
-				Spawner->RemoveTile(Tile);
-			}
-		}
-		TileMap[ReplacableIndex].Empty(); // Clear the tile map for this PMC
-
-		// 删除 CachedSpawnData 中对应 tile 的数据
-		for (auto It = CachedSpawnData.CreateIterator(); It; ++It)
-		{
-			if (It.Key().Z == ReplacableIndex)
-			{
-				// UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData before used!"), It.Key().Z, *FIntVector(It.Key()).ToString());
-				It.RemoveCurrent();
-			}
-		}
-
-		VersionNumber[ReplacableIndex] = ++CurrentVersionIndex;
-		return { PMC, ReplacableIndex };
-	}
+TPair<UProceduralMeshComponent*, int32> AWorldGenerator::GetActivePMC() const
+{
+	return { ProceduralMeshComp[ActivePMCIndex], ActivePMCIndex };
+	// FInt32Point Region = GetRegionFromHorizontalPos(Pos);
+	// int32 ReplacableIndex = -1;
+	// for (int32 i = 0; i < MaxRegionCount; ++i)
+	// {
+	// 	UProceduralMeshComponent* PMC = ProceduralMeshComp[i];
+	// 	if (!PMC || PMC->GetNumSections() == 0)
+	// 	{
+	// 		ReplacableIndex = i;
+	// 	}
+	// 	else if (GetRegionFromPMC(PMC) == Region)
+	// 	{
+	// 		VersionNumber[i] = ++CurrentVersionIndex; // Update version number
+	// 		return { PMC, i };												// Return the existing PMC for this region
+	// 	}
+	// }
+	// if (ReplacableIndex != -1)
+	// {
+	// 	auto* NonConstThis = const_cast<AWorldGenerator*>(this);
+	// 	UProceduralMeshComponent* PMC = ProceduralMeshComp[ReplacableIndex];
+	// 	if (!PMC)
+	// 	{
+	// 		PMC = NewObject<UProceduralMeshComponent>(NonConstThis, UProceduralMeshComponent::StaticClass(), NAME_None);
+	// 		// UE_LOG(LogWorldGenerator, Warning, TEXT("Creating new PMC for region: %s at index %d, input position: %s"), *Region.ToString(), ReplacableIndex, *Pos.ToString());
+	// 		PMC->bUseAsyncCooking = true; // 重中之重！！
+	// 		PMC->SetCollisionProfileName(TEXT("BlockCamera"));
+	// 		PMC->RegisterComponent();
+	// 		PMC->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
+	// 		ProceduralMeshComp[ReplacableIndex] = PMC; // Replace the PMC at the found index
+	// 	}
+	// 	PMC->SetWorldLocation(FVector(Region.X * RegionSize, Region.Y * RegionSize, 0.0f));
+	//
+	// 	VersionNumber[ReplacableIndex] = ++CurrentVersionIndex; // Update version number
+	// 	return { PMC, ReplacableIndex };
+	// }
+	// else
+	// {
+	// 	int64 MinVersion = INT64_MAX;
+	// 	for (int32 i = 0; i < MaxRegionCount; ++i)
+	// 	{
+	// 		if (VersionNumber[i] < MinVersion)
+	// 		{
+	// 			MinVersion = VersionNumber[i];
+	// 			ReplacableIndex = i;
+	// 		}
+	// 	}
+	// 	UProceduralMeshComponent* PMC = ProceduralMeshComp[ReplacableIndex];
+	// 	auto OldRegion = GetRegionFromPMC(PMC);
+	// 	// UE_LOG(LogWorldGenerator, Warning, TEXT("Replacing PMC for region: %s with new region: %s at index %d, input position: %s"),
+	// 	// 		*OldRegion.ToString(), *Region.ToString(), ReplacableIndex, *Pos.ToString());
+	// 	PMC->ClearAllMeshSections();
+	// 	PMC->SetWorldLocation(FVector(Region.X * RegionSize, Region.Y * RegionSize, 0.0f));
+	//
+	// 	for (auto Tile : TileMap[ReplacableIndex])
+	// 	{
+	// 		for (ABarrierSpawner* Spawner : BarrierSpawners)
+	// 		{
+	// 			Spawner->RemoveTile(Tile);
+	// 		}
+	// 	}
+	// 	TileMap[ReplacableIndex].Empty(); // Clear the tile map for this PMC
+	//
+	// 	// 删除 CachedSpawnData 中对应 tile 的数据
+	// 	for (auto It = CachedSpawnData.CreateIterator(); It; ++It)
+	// 	{
+	// 		if (It.Key().Z == ReplacableIndex)
+	// 		{
+	// 			// UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData before used!"), It.Key().Z, *FIntVector(It.Key()).ToString());
+	// 			It.RemoveCurrent();
+	// 		}
+	// 	}
+	//
+	// 	VersionNumber[ReplacableIndex] = ++CurrentVersionIndex;
+	// 	return { PMC, ReplacableIndex };
+	// }
 }
 
 // void AWorldGenerator::SpawnBarrierSpawners()
@@ -440,7 +473,7 @@ bool AWorldGenerator::IsNeccessrayTile(FInt32Point Tile) const
 	if (bOneLineMode)
 	{
 		// 在一行模式下，只检查 X 坐标
-		return Tile.X >= PlayerTile.X - 1 && Tile.X <= PlayerTile.X + 3;
+		return Tile.X >= PlayerTile.X - 1 && Tile.X <= PlayerTile.X + MaxForwardTileNumber;
 	}
 	if (Tile.X >= PlayerTile.X - 1 && Tile.X <= PlayerTile.X + 1 && Tile.Y >= PlayerTile.Y - 1 && Tile.Y <= PlayerTile.Y + 1)
 	{
@@ -455,7 +488,7 @@ bool AWorldGenerator::CanRemoveTile(FInt32Point Tile) const
 	if (bOneLineMode)
 	{
 		// 在一行模式下，只检查 X 坐标
-		return Tile.X < PlayerTile.X - 1 || Tile.X > PlayerTile.X + 3;
+		return Tile.X < PlayerTile.X - 1 || Tile.X > PlayerTile.X + MaxForwardTileNumber;
 	}
 	if (Tile.X >= PlayerTile.X - 2 && Tile.X <= PlayerTile.X + 2 && Tile.Y >= PlayerTile.Y - 2 && Tile.Y <= PlayerTile.Y + 2)
 	{
@@ -466,13 +499,25 @@ bool AWorldGenerator::CanRemoveTile(FInt32Point Tile) const
 
 FVector2D AWorldGenerator::GetUVFromPosAnyThread(FVector Position) const
 {
+	// 根据世界坐标偏移计算真实的世界坐标
+	Position.X += WorldOriginOffset.X;
+	Position.Y += WorldOriginOffset.Y;
 	double X = Position.X / (TextureSize.X);
 	double Y = Position.Y / (TextureSize.Y);
 	// X = FMath::Fmod(X + UVOffset.X, MaxTextureCoords);
 	// Y = FMath::Fmod(Y + UVOffset.Y, MaxTextureCoords);
 
-	X = FMath::Fmod(X, MaxTextureCoords);
-	Y = FMath::Fmod(Y, MaxTextureCoords);
+	// 镜像纹理坐标
+	X = FMath::Fmod(X, 2* MaxTextureCoords);
+	Y = FMath::Fmod(Y, 2* MaxTextureCoords);
+	if (X > MaxTextureCoords)
+	{
+		X = 2 * MaxTextureCoords - X;
+	}
+	if (Y > MaxTextureCoords)
+	{
+		Y = 2 * MaxTextureCoords - Y;
+	}
 
 	return FVector2D(X, Y);
 }
@@ -486,6 +531,10 @@ double AWorldGenerator::GetHeightFromPerlinAnyThread(FVector2D Pos, FInt32Point 
 	}
 	double PerlinXOffset = 1 / FMath::Sqrt(2.0);
 	double PerlinYOffset = 1 / FMath::Sqrt(3.0);
+
+	// 根据世界原点的偏移计算真实的世界坐标
+	Pos.X += WorldOriginOffset.X;
+	Pos.Y += WorldOriginOffset.Y;
 
 	auto RotatedPos = FVector2D(
 			Pos.X * PerlinCosTheta - Pos.Y * PerlinSinTheta,
@@ -508,7 +557,12 @@ FVector AWorldGenerator::GetNormalFromHorizontalPos(FVector2D Pos) const
 
 	UProceduralMeshComponent* PMC = nullptr;
 	int32 PMCIndex = -1;
-	Tie(PMC, PMCIndex) = GetPMCFromHorizontalPos(Pos);
+	Tie(PMC, PMCIndex) = GetPMCFromTile(Tile);
+	if (PMCIndex == INDEX_NONE)
+	{
+		UE_LOG(LogWorldGenerator, Warning, TEXT("PMC not found for tile: %s at position: %s"), *Tile.ToString(), *Pos.ToString());
+		return FVector::UpVector; // PMC not found
+	}
 	auto MeshSection = TileMap[PMCIndex].Find(Tile);
 	if (MeshSection == INDEX_NONE)
 	{
@@ -550,7 +604,7 @@ FVector AWorldGenerator::GetNormalFromUVandTile(FVector2D UV, FInt32Point Tile) 
 
 void AWorldGenerator::PostProcessHeightMap(FInt32Point Tile, TArray<FVector>& VerticesBuffer)
 {
-	if (Tile != PlayerStartTile || !bEnablePostProcessHeightMap)
+	if (Tile != PlayerStartTile || !bEnablePostProcessHeightMap || WorldOriginOffset.X != 0.0)
 	{
 		return;
 	}
@@ -612,9 +666,8 @@ void AWorldGenerator::CreateMeshFromTileData()
 
 			auto TestPos = FVector2D(Tile.X * CellSize * XCellNumber + (CellSize * XCellNumber / 2.0),
 					Tile.Y * CellSize * YCellNumber + (CellSize * YCellNumber / 2.0));
-			UProceduralMeshComponent* PMC = nullptr;
-			int32 PMCIndex = -1;
-			Tie(PMC, PMCIndex) = GetPMCFromHorizontalPos(FVector2D(TestPos.X, TestPos.Y));
+			int32 PMCIndex = PMCIndexForTile[i];
+			UProceduralMeshComponent* PMC = ProceduralMeshComp[PMCIndex];
 
 			auto SectionIdx = FindReplaceableSection(PMCIndex);
 			// See https://forums.unrealengine.com/t/procedural-mesh-does-not-update-collision-after-modifying-vertices/68174/2
@@ -650,6 +703,7 @@ void AWorldGenerator::CreateMeshFromTileData()
 					BarrierSpawner->RemoveTile(OldTile);
 				}
 				TileMap[PMCIndex][SectionIdx] = Tile;
+				UE_LOG(LogWorldGenerator, Log, TEXT("Tile %s replaced with new tile %s in PMC %d"), *OldTile.ToString(), *Tile.ToString(), PMCIndex);
 				// 删除 CachedSpawnData 中对应 tile 的数据
 				auto RemoveNumber = CachedSpawnData.Remove(FIntVector(OldTile.X, OldTile.Y, PMCIndex));
 				if (RemoveNumber > 0)
@@ -775,6 +829,7 @@ void AWorldGenerator::PMCClear(int32 ReplaceableIndex)
 			Spawner->RemoveTile(Tile);
 		}
 	}
+	UE_LOG(LogWorldGenerator, Log, TEXT("Clearing PMC %d, removing %d tiles"), ReplaceableIndex, TileMap[ReplaceableIndex].Num());
 	TileMap[ReplaceableIndex].Empty(); // Clear the tile map for this PMC
 
 	// 删除 CachedSpawnData 中对应 tile 的数据
@@ -786,6 +841,22 @@ void AWorldGenerator::PMCClear(int32 ReplaceableIndex)
 			It.RemoveCurrent();
 		}
 	}
+}
+
+// See https://stackoverflow.com/questions/664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key
+static inline uint32 int32HashFunc(uint32 x)
+{
+	x = ((x >> 16) ^ x) * 0x45d9f3bu;
+	x = ((x >> 16) ^ x) * 0x45d9f3bu;
+	x = (x >> 16) ^ x;
+	return x;
+}
+
+static int64 GetSeedFromTile(FInt32Point Tile, int32 BarrierRandom)
+{
+	auto X = int32HashFunc(Tile.X);
+	int64 Seed = (uint64(X) << 32) | uint64(uint32(BarrierRandom));
+	return Seed;
 }
 
 bool AWorldGenerator::GenerateOneTile(FInt32Point Tile)
@@ -819,17 +890,20 @@ bool AWorldGenerator::GenerateOneTile(FInt32Point Tile)
 	auto TestPos = FVector2D(XOffset + (double)CellSize * XCellNumber / 2.0, YOffset + (double)CellSize * YCellNumber / 2.0);
 	UProceduralMeshComponent* PMC = nullptr;
 	int32 PMCIndex = -1;
-	Tie(PMC, PMCIndex) = GetPMCFromHorizontalPos(TestPos);
+	Tie(PMC, PMCIndex) = GetActivePMC();
 
 	auto PosOffset = FVector2D(PMC->GetComponentLocation());
+	auto Seed = GetSeedFromTile(Tile, BarrierRandom);
 
 	// 因为 Difficulty 在 game 线程中不断被访问和修改，因此这里我们将当前的 Difficulty 直接传递给 worker
-	auto Lambda = [this, PosOffset, Tile, BufferIndex, Difficulty = this->CurrentDifficulty]() {
+	// 撒点的随机性依赖于 Tile 编号，因此这里使用真实的 Tile 编号
+	auto Lambda = [this, PosOffset, Tile, BufferIndex, Difficulty = this->CurrentDifficulty, Seed]() {
 		// Generate the tile mesh data
-		GenerateOneTileAsync(BufferIndex, Difficulty, Tile, PosOffset);
+		GenerateOneTileAsync(Seed, BufferIndex, Difficulty, Tile, PosOffset);
 	};
 	AsyncTaskRef[BufferIndex] = TGraphTask<FPCGAsyncGraphTask>::CreateTask().ConstructAndDispatchWhenReady(ENamedThreads::AnyThread, MoveTemp(Lambda));
-	TilesInBuilding[BufferIndex] = Tile; // Store the tile for this buffer
+	TilesInBuilding[BufferIndex] = Tile;		 // Store the tile for this buffer
+	PMCIndexForTile[BufferIndex] = PMCIndex; // Store the PMC index for this buffer
 	return true;
 }
 
@@ -898,6 +972,7 @@ void AWorldGenerator::GenerateNewTiles()
 			if (!bHasNeccessaryTiles)
 			{
 				// 如果没有必要的 tile，则清除这个 PMC
+				UE_LOG(LogWorldGenerator, Warning, TEXT("Clearing PMC %d, removing %d tiles in PlayerTile %s"), i, TileMap[i].Num(), *PlayerTile.ToString());
 				PMCClear(i);
 			}
 		}
@@ -906,14 +981,88 @@ void AWorldGenerator::GenerateNewTiles()
 	for (auto It = CachedSpawnData.CreateIterator(); It; ++It)
 	{
 		auto Tile = FInt32Point(It.Key().X, It.Key().Y);
-		int32 ReplacableIndex = It.Key().Z;
-		auto bSuccess = BarrierSpawners[ReplacableIndex]->DeferSpawnBarriers(It.Value(), Tile, this);
+		int32 BarrierIndex = It.Key().Z;
+		auto bSuccess = BarrierSpawners[BarrierIndex]->DeferSpawnBarriers(It.Value(), Tile, this);
 		if (bSuccess)
 		{
 			// UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s spawned barriers from CachedSpawnData!"), ReplacableIndex, *Tile.ToString());
 			It.RemoveCurrent();
 		}
 	}
+}
+
+bool AWorldGenerator::ConditionalMoveWorldOrigin()
+{
+	auto* Character = UGameplayStatics::GetPlayerCharacter(this, 0);
+	auto MoveOriginDistance = (double)CellSize * (double)XCellNumber * (MoveOriginXTile);
+	if (Character && Character->GetActorLocation().X > MoveOriginDistance)
+	{
+		WorldOriginOffset.X += MoveOriginDistance;
+
+		// 偏移地形
+		int32 PMCIndex;
+		UProceduralMeshComponent* PMC = nullptr;
+		Tie(PMC, PMCIndex) = GetActivePMC();
+		PMC->AddWorldOffset(FVector(-MoveOriginDistance, 0.0, 0.0));
+
+		// 更新 TileMap 中的 Tile 坐标，并更新 Tile 的材质参数
+		for (int32 i = 0, NumTiles = TileMap[PMCIndex].Num(); i < NumTiles; ++i)
+		{
+			TileMap[PMCIndex][i].X -= MoveOriginXTile;
+			Cast<UMaterialInstanceDynamic>(PMC->GetMaterial(i))->SetScalarParameterValue("TileX", TileMap[PMCIndex][i].X);
+		}
+
+		// 更新正在 building 的 tile 坐标
+		for (int32 i = 0; i < MaxThreadCount; ++i)
+		{
+			if (TilesInBuilding[i].X != INT32_MAX)
+			{
+				TilesInBuilding[i].X -= MoveOriginXTile;
+			}
+		}
+
+		// evil pos 更新
+		EvilPos -= MoveOriginDistance;
+
+		// 更新 Cached Spawned Data 中的 tile 坐标
+		TMap<FIntVector, TArray<RandomPoint>> NewCachedData;
+		NewCachedData.Reserve(CachedSpawnData.Num());
+		for (auto& It : CachedSpawnData)
+		{
+			auto NewKey = FIntVector(It.Key.X - MoveOriginXTile, It.Key.Y, It.Key.Z);
+			NewCachedData.Add(NewKey, MoveTemp(It.Value));
+		}
+		CachedSpawnData = MoveTemp(NewCachedData);
+
+		// 通知 BarrierSpawner 更新它们的 tile 和障碍物坐标
+		for (ABarrierSpawner* Spawner : BarrierSpawners)
+		{
+			Spawner->MoveWorldOrigin(MoveOriginXTile, MoveOriginDistance);
+		}
+
+		// 翻转活跃的 PMC
+		ActivePMCIndex = (ActivePMCIndex + 1) % MaxRegionCount;
+		// 新的 PMC 应该位于原点并且没有 mesh section
+		int32 NewPMCIndex;
+		UProceduralMeshComponent* NewPMC = nullptr;
+		Tie(NewPMC, NewPMCIndex) = GetActivePMC();
+		ensure(NewPMC != PMC);
+		ensure(NewPMC->GetNumSections() == 0);
+		NewPMC->SetWorldLocation(FVector(0.0, 0.0, 0.0));
+
+		// 偏移角色, 使用 TeleportTo 而不是 SetActorLocation，保证移动组件能知道该消息！
+		auto CurrentLocation = Character->GetActorLocation();
+		auto NewLocation = FVector(CurrentLocation.X - MoveOriginDistance, CurrentLocation.Y, CurrentLocation.Z);
+		Character->TeleportTo(NewLocation, Character->GetActorRotation(), false, true);
+
+		OnWorldOriginChanged.Broadcast(MoveOriginDistance);
+
+		UE_LOG(LogWorldGenerator, Warning, TEXT("World origin moved! New origin offset: %s, Active PMC index: %d"), *WorldOriginOffset.ToString(), ActivePMCIndex);
+		UE_LOG(LogWorldGenerator, Warning, TEXT("PMC 0 Pos: %s, PMC 1 Pos: %s"), *ProceduralMeshComp[0]->GetComponentLocation().ToString(), *ProceduralMeshComp[1]->GetComponentLocation().ToString());
+		UE_LOG(LogWorldGenerator, Log, TEXT("Character moved to new pos: %s"), *Character->GetActorLocation().ToString());
+		return true;
+	}
+	return false;
 }
 
 // int32 AWorldGenerator::GetBarrierCountForTileAnyThread(FInt32Point Tile) const
@@ -965,7 +1114,12 @@ FVector AWorldGenerator::GetVisualWorldPositionFromUV(FVector2D UV, FInt32Point 
 	auto TestPos = FVector2D((Tile.X + 0.5) * CellSize * XCellNumber, (Tile.Y + 0.5) * CellSize * YCellNumber);
 	UProceduralMeshComponent* PMC = nullptr;
 	int32 PMCIndex = -1;
-	Tie(PMC, PMCIndex) = GetPMCFromHorizontalPos(TestPos);
+	Tie(PMC, PMCIndex) = GetPMCFromTile(Tile);
+	if (PMCIndex == INDEX_NONE)
+	{
+		UE_LOG(LogWorldGenerator, Warning, TEXT("PMC not found for tile: %s at position: %s"), *Tile.ToString(), *TestPos.ToString());
+		return FVector::ZeroVector; // PMC not found
+	}
 	auto MeshSection = TileMap[PMCIndex].Find(Tile);
 	if (MeshSection == INDEX_NONE)
 	{
@@ -990,8 +1144,9 @@ FVector AWorldGenerator::GetVisualWorldPositionFromUV(FVector2D UV, FInt32Point 
 	auto Vertex3 = MeshInfo->ProcVertexBuffer[V3].Position;
 
 	auto WPos = BarycentricCoords.X * Vertex1 + BarycentricCoords.Y * Vertex2 + (1 - BarycentricCoords.X - BarycentricCoords.Y) * Vertex3;
-
-	return WPos + PMC->GetComponentLocation(); // Add the component location to get the world position
+	auto RetPos = WPos + PMC->GetComponentLocation();
+	ensure(RetPos.X <= 140000.0);
+	return RetPos;
 }
 
 FVector2D AWorldGenerator::GetUVandTileFromPos(FVector2D Pos, FInt32Point& Tile) const
@@ -1056,7 +1211,7 @@ FVector2D AWorldGenerator::ClampToWorld(FVector2D Pos, double Radius) const
 // 	Point.Transform.SetTranslation(WorldPos);
 // }
 
-void AWorldGenerator::GenerateOneTileAsync(int32 BufferIndex, int32 Difficulty, FInt32Point Tile, FVector2D PositionOffset)
+void AWorldGenerator::GenerateOneTileAsync(int64 Seed, int32 BufferIndex, int32 Difficulty, FInt32Point Tile, FVector2D PositionOffset)
 {
 	// 在这里执行异步生成逻辑
 	auto& TaskData = TaskDataBuffers[BufferIndex];
@@ -1080,7 +1235,7 @@ void AWorldGenerator::GenerateOneTileAsync(int32 BufferIndex, int32 Difficulty, 
 	}
 
 	UKismetProceduralMeshLibrary::CalculateTangentsForMesh(VerticesBuffer, TrianglesBuffer, UV0Buffer, NormalsBuffer, TangentsBuffer);
-	GenerateRandomPointsAsync(BufferIndex, Difficulty, Tile, TaskDataBuffers[BufferIndex].RandomPoints);
+	GenerateRandomPointsAsync(Seed, BufferIndex, Difficulty, Tile, TaskDataBuffers[BufferIndex].RandomPoints);
 
 	// Game 线程的回调
 	AsyncTask(ENamedThreads::GameThread, TUniqueFunction<void()>([this, BufferIndex]() {
@@ -1088,19 +1243,8 @@ void AWorldGenerator::GenerateOneTileAsync(int32 BufferIndex, int32 Difficulty, 
 	}));
 }
 
-// See https://stackoverflow.com/questions/664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key
-static inline uint32 int32HashFunc(uint32 x)
+void AWorldGenerator::GenerateRandomPointsAsync(int64 Seed, int32 BufferIndex, int32 Difficulty, FInt32Point Tile, TArray<RandomPoint>& RandomPoints)
 {
-	x = ((x >> 16) ^ x) * 0x45d9f3bu;
-	x = ((x >> 16) ^ x) * 0x45d9f3bu;
-	x = (x >> 16) ^ x;
-	return x;
-}
-
-void AWorldGenerator::GenerateRandomPointsAsync(int32 BufferIndex, int32 Difficulty, FInt32Point Tile, TArray<RandomPoint>& RandomPoints)
-{
-	auto X = int32HashFunc(Tile.X);
-	int64 Seed = (uint64(X) << 32) | uint64(uint32(BarrierRandom));
 	TaskDataBuffers[BufferIndex].RandomEngine.seed(Seed);
 
 	// GenerateUniformRandomPointsAsync(BufferIndex, RandomPoints);
@@ -1381,7 +1525,7 @@ void AWorldGenerator::OnConstruction(const FTransform& Transform)
 	InitDataBuffer();
 
 	auto PosOffset = FVector2D(double(CellSize) * XCellNumber / 2, double(CellSize) * YCellNumber / 2);
-	GenerateOneTileAsync(0, 0, FInt32Point(0, 0), PosOffset);
+	GenerateOneTileAsync(0, 0, 0, FInt32Point(0, 0), PosOffset);
 
 	auto& Vertices = TaskDataBuffers[0].VerticesBuffer;
 	if (DrawType == EDrawType::Gaussian)
@@ -1399,7 +1543,7 @@ void AWorldGenerator::OnConstruction(const FTransform& Transform)
 	auto Tile = TilesInBuilding[0];
 	UProceduralMeshComponent* PMC = nullptr;
 	int32 PMCIndex = -1;
-	Tie(PMC, PMCIndex) = GetPMCFromHorizontalPos(FVector2D(100.0, 100.0));
+	Tie(PMC, PMCIndex) = GetActivePMC();
 
 	auto SectionIdx = FindReplaceableSection(PMCIndex);
 

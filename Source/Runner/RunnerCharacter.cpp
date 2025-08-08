@@ -171,6 +171,7 @@ void ARunnerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ARunnerCharacter::Move);
+		EnhancedInputComponent->BindAction(DebugForwardAction, ETriggerEvent::Triggered, this, &ARunnerCharacter::DebugForward);
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ARunnerCharacter::Look);
@@ -216,7 +217,7 @@ void ARunnerCharacter::Tick(float Delta)
 	}
 	else if (Thrusting & static_cast<int8>(EThrustSource::UserThrust))
 	{
-		Mana -= ManaReduceSpeed * Delta;
+		Mana -= bInfiniteHealth ? 0.0f :ManaReduceSpeed * Delta;
 		if (Mana <= 0.0f)
 		{
 			Mana = 0.0f;
@@ -348,6 +349,11 @@ void ARunnerCharacter::Move(const FInputActionValue& Value)
 		// AddMovementInput(ForwardDirection, -1.0f);
 		// AddMovementInput(RightDirection, MovementVector.X);
 	}
+}
+
+void ARunnerCharacter::DebugForward(const FInputActionValue& Value)
+{
+	AddMovementInput(GetActorForwardVector(), 1.0f);
 }
 
 void ARunnerCharacter::Look(const FInputActionValue& Value)

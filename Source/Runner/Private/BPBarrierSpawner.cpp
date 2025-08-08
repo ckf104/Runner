@@ -67,3 +67,29 @@ void ABPBarrierSpawner::RemoveTile(FInt32Point Tile)
 	}
 	SpawnedBarriers.Remove(Tile);
 }
+
+void ABPBarrierSpawner::MoveWorldOrigin(int32 TileXOffset, double WorldOffsetX)
+{
+	TMultiMap<FInt32Point, TWeakObjectPtr<AActor>> NewSpawnedBarriers;
+	NewSpawnedBarriers.Reserve(SpawnedBarriers.Num());
+
+	for (auto& It : SpawnedBarriers)
+	{
+		auto NewKey = FInt32Point(It.Key.X - TileXOffset, It.Key.Y);
+		if (AActor* Actor = It.Value.Get())
+		{
+			Actor->AddActorWorldOffset(FVector(-WorldOffsetX, 0.0, 0.0));
+			NewSpawnedBarriers.Add(NewKey, TWeakObjectPtr<AActor>(Actor));
+		}
+	}
+	SpawnedBarriers = MoveTemp(NewSpawnedBarriers);
+
+	// TODO: 是否需要处理 CachedBarriers？
+	for (auto& WeakActor : CachedBarriers)
+	{
+		if (AActor* Actor = WeakActor.Get())
+		{
+			Actor->AddActorWorldOffset(FVector(-WorldOffsetX, 0.0, 0.0));
+		}
+	}
+}

@@ -39,6 +39,7 @@ public:
 
 	void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
 	void RemoveTile(FInt32Point Tile) override;
+	void MoveWorldOrigin(int32 TileXOffset, double WorldOffsetX) override;
 
 #if WITH_EDITOR
 	void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;

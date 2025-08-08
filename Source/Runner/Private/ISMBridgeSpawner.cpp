@@ -24,8 +24,7 @@ void AISMBridgeSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 	}
 
 	TArray<int32> InstanceIndices;
-	InstanceIndices.SetNumUninitialized(Positions.Num());
-	int32 Idx = 0;
+	InstanceIndices.Reserve(Positions.Num());
 	for (auto& Point : Positions)
 	{
 		if (!CanSpawnThisBarrier(Tile, Point.UVPos, WorldGenerator))
@@ -45,12 +44,12 @@ void AISMBridgeSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32P
 			// Transform.SetScale3D(FVector(Point.Size));
 			int32 InstanceIndex = ReplaceInstanceIndices.Pop(EAllowShrinking::No);
 			ISMComponent->UpdateInstanceTransform(InstanceIndex, Transform, true, false, true);
-			InstanceIndices[Idx++] = InstanceIndex;
+			InstanceIndices.Add(InstanceIndex);
 		}
 		else
 		{
 			// Add a new instance
-			InstanceIndices[Idx++] = ISMComponent->AddInstance(Transform, true);
+			InstanceIndices.Add(ISMComponent->AddInstance(Transform, true));
 		}
 	}
 	// 在最后统一标记 render state 为 dirty

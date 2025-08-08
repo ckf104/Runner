@@ -24,6 +24,7 @@ FRotator ADecalSpawner::GetRotationFromSeed(FRotator Seed) const
 void ADecalSpawner::SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator)
 {
   TArray<UDecalComponent*> DecalsInTile;
+  DecalsInTile.Reserve(Positions.Num());
 
   for (const RandomPoint& Position : Positions)
   {
@@ -76,5 +77,34 @@ void ADecalSpawner::RemoveTile(FInt32Point Tile)
   {
     CachedDecals.Append(*Decals);
     SpawnedDecals.Remove(Tile);
+  }
+}
+
+void ADecalSpawner::MoveWorldOrigin(int32 TileXOffset, double WorldOffsetX)
+{
+  TMap<FInt32Point, TArray<UDecalComponent*>> NewSpawnedDecals;
+  NewSpawnedDecals.Reserve(SpawnedDecals.Num());
+
+  for (auto& It : SpawnedDecals)
+  {
+    auto NewKey = FInt32Point(It.Key.X - TileXOffset, It.Key.Y);
+    
+    for (UDecalComponent* Decal : It.Value)
+    {
+      FTransform OutInstanceTransform = Decal->GetComponentTransform();
+      OutInstanceTransform.SetTranslation(OutInstanceTransform.GetTranslation() - FVector(WorldOffsetX, 0.0, 0.0));
+      Decal->SetWorldTransform(OutInstanceTransform);
+    }
+
+    NewSpawnedDecals.Add(NewKey, MoveTemp(It.Value));
+  }
+
+  SpawnedDecals = MoveTemp(NewSpawnedDecals);
+
+  for (UDecalComponent* Decal : CachedDecals)
+  {
+    FTransform OutInstanceTransform = Decal->GetComponentTransform();
+    OutInstanceTransform.SetTranslation(OutInstanceTransform.GetTranslation() - FVector(WorldOffsetX, 0.0, 0.0));
+    Decal->SetWorldTransform(OutInstanceTransform);
   }
 }

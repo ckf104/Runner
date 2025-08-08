@@ -61,6 +61,8 @@ protected:
 	
 
 public:	
+	void OnWorldOriginChanged(double XOffset);
+
 	void Tick(float DeltaTime) override;
 	UFUNCTION(BlueprintCallable, Category = "Missile")
 	

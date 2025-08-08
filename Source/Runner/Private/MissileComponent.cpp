@@ -9,6 +9,7 @@
 #include "Missile.h"
 #include "WorldGenerator.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogMissileComponent, Log, All);
 
 // Sets default values for this component's properties
 UMissileComponent::UMissileComponent()
@@ -25,6 +26,7 @@ UMissileComponent::UMissileComponent()
 void UMissileComponent::BeginPlay()
 {
 	Super::BeginPlay();
+	Cast<AWorldGenerator>(GetOwner())->OnWorldOriginChanged.AddUObject(this, &UMissileComponent::OnWorldOriginChanged);
 	SetComponentTickInterval(TickInterval);
 }
 
@@ -66,6 +68,7 @@ FVector UMissileComponent::RandomMissileStartPos(FVector TargetPos)
 void UMissileComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	// UE_LOG(LogMissileComponent, Log, TEXT("UMissileComponent::TickComponent, LastPlayerPos: %f"), LastPlayerPos);
 
 	auto* Character = UGameplayStatics::GetPlayerCharacter(this, 0);		
 	if (Character == nullptr)
@@ -105,10 +108,17 @@ void UMissileComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		auto* Missile = GetWorld()->SpawnActor<AMissile>(MissileClass, StartPos, Rotation, SpawnParams);
 		Missile->SetTargetPos(PredictPos);
 		Missile->FinishSpawning(FTransform(Rotation, StartPos));
+		WorldGenerator->OnWorldOriginChanged.AddUObject(Missile, &AMissile::OnWorldOriginChanged);
 
 		TotalDistance = 0.0;
 		TotalTime = 0.0;
 		LastPlayerPos = Character->GetActorLocation().X;
 	}
+}
+
+void UMissileComponent::OnWorldOriginChanged(double MoveXOffset)
+{
+	LastPlayerPos -= MoveXOffset;
+	// UE_LOG(LogMissileComponent, Log, TEXT("OnWorldOriginChanged, New LastPlayerPos: %f"), LastPlayerPos);
 }
 

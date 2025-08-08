@@ -55,6 +55,8 @@ public:
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
+	void OnWorldOriginChanged(double MoveXOffset);
+
 private:		
 		double LastPlayerPos = 0.0; // 上次玩家位置
 		double TotalDistance = 0.0; // 总距离

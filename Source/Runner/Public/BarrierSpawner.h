@@ -65,12 +65,15 @@ protected:
 public:
 	bool CanSpawnThisBarrier(FInt32Point Tile, FVector2D UVPos, AWorldGenerator* WorldGenerator) const
 	{
-		auto PlayerStartTile = WorldGenerator->GetPlayerStartTile();
-		auto bProximity = FMath::Abs(UVPos.X - 0.5) <= 0.2 && FMath::Abs(UVPos.Y - 0.5) <= 0.2;
-		if (Tile == PlayerStartTile && bProximity)
+		if (!WorldGenerator->GameStarted())
 		{
-			// 玩家起始位置周围 不允许生成障碍物
-			return false;
+			auto PlayerStartTile = WorldGenerator->GetPlayerStartTile();
+			auto bProximity = FMath::Abs(UVPos.X - 0.5) <= 0.2 && FMath::Abs(UVPos.Y - 0.5) <= 0.2;
+			if (Tile == PlayerStartTile && bProximity)
+			{
+				// 玩家起始位置周围 不允许生成障碍物
+				return false;
+			}
 		}
 		return true;
 	}
@@ -92,6 +95,7 @@ public:
 		// 当 MaxCount 大于 0 时，确保至少生成一个障碍物
 		return FMath::Max(BarCount, 1);
 	}
+	virtual void MoveWorldOrigin(int32 TileXOffset, double WorldOffsetX) {}
 
 	virtual bool BarrierHasCustomSlope() const { return false; }
 	virtual double GetCustomSlopeAngle(int32 InstanceIndex) const { return 0.0; }

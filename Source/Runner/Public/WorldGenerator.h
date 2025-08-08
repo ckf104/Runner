@@ -12,6 +12,8 @@
 #include "Templates/SubclassOf.h"
 #include "WorldGenerator.generated.h"
 
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnWorldOriginChanged, double);
+
 struct RandomPoint
 {
 	FVector2D UVPos;	 // 0 - 1 的随机变量表示点的坐标
@@ -89,6 +91,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	double RegionSize = 40000.0;
 
+	// 当超过该距离时移动原点
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
+	int32 MoveOriginXTile = 20;
+
+	FVector2D WorldOriginOffset = FVector2D(0.0f, 0.0f); // 世界原点偏移量
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World Generation")
 	FVector2D TextureSize = FVector2D(1024.0f, 1024.0f);
 
@@ -118,6 +126,7 @@ public:
 	EBufferState BufferStateGameThreadOnly[MaxThreadCount] = { EBufferState::Idle };
 	FGraphEventRef AsyncTaskRef[MaxThreadCount]; // 异步任务引用
 	FInt32Point TilesInBuilding[MaxThreadCount]; // 每个线程的偏移量
+	int32 PMCIndexForTile[MaxThreadCount]; // 每个线程对应的 PMC 索引
 
 	UPROPERTY(VisibleAnywhere, Category = "World Generation")
 	mutable TObjectPtr<class UProceduralMeshComponent> ProceduralMeshComp[MaxRegionCount];
@@ -172,14 +181,17 @@ public:
 
 	FInt32Point GetRegionFromHorizontalPos(FVector2D Pos) const
 	{
-		return FInt32Point(FMath::FloorToInt(Pos.X / RegionSize), FMath::FloorToInt(Pos.Y / RegionSize));
+		// return FInt32Point(FMath::FloorToInt(Pos.X / RegionSize), FMath::FloorToInt(Pos.Y / RegionSize));
+		return FInt32Point(0, 0);
 	}
 	// 获取对应位置的 PMC 和它在数组中的编号
-	TPair<UProceduralMeshComponent*, int32> GetPMCFromHorizontalPos(FVector2D Pos) const;
+	TPair<UProceduralMeshComponent*, int32> GetActivePMC() const;
+	TPair<UProceduralMeshComponent*, int32> GetPMCFromTile(FInt32Point Tile) const;
 	FInt32Point GetRegionFromPMC(UProceduralMeshComponent* PMC) const
 	{
-		auto TestPos = PMC->GetComponentLocation() + FVector(RegionSize / 2.0, RegionSize / 2.0, 0.0);
-		return FInt32Point(FMath::FloorToInt(TestPos.X / RegionSize), FMath::FloorToInt(TestPos.Y / RegionSize));
+		// auto TestPos = PMC->GetComponentLocation() + FVector(RegionSize / 2.0, RegionSize / 2.0, 0.0);
+		// return FInt32Point(FMath::FloorToInt(TestPos.X / RegionSize), FMath::FloorToInt(TestPos.Y / RegionSize));
+		return FInt32Point(0, 0);
 	}
 	FInt32Point GetTileFromHorizontalPos(FVector2D Pos) const;
 
@@ -202,12 +214,18 @@ public:
 
 	// FVector TransformUVToWorldPos(RandomPoint& Point, FInt32Point Tile) const;
 
+	bool ConditionalMoveWorldOrigin();
+
 	void OnConstruction(const FTransform& Transform) override;
 
 #if WITH_EDITOR
 	void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent);
 #endif // WITH_EDITOR
 
+private:
+	int32 ActivePMCIndex = 0; // 当前活跃的 PMC 索引
+public:	
+	FOnWorldOriginChanged OnWorldOriginChanged; // 世界原点改变时的回调
 private:
 	// 缓存延迟 spawn 的 spawner 需要的数据
 	mutable TMap<FIntVector, TArray<RandomPoint>> CachedSpawnData;
@@ -224,6 +242,9 @@ private:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	bool bDebugMode = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
+	bool bDebugPrint = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	bool bEnablePostProcessHeightMap = true;
@@ -249,8 +270,8 @@ private:
 	// UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	// FVector2D UVOffset = FVector2D(0.0f, 0.0f); // 用于调试 UV 偏移
 
-	mutable int64 VersionNumber[MaxRegionCount]; // 对应每个 Region 的版本号
-	mutable int64 CurrentVersionIndex = 0;
+	// mutable int64 VersionNumber[MaxRegionCount]; // 对应每个 Region 的版本号
+	// mutable int64 CurrentVersionIndex = 0;
 
 	void DebugPrint() const;
 
@@ -288,6 +309,10 @@ public:
 	{
 		return PlayerStartTile;
 	}
+	bool GameStarted() const
+	{
+		return bGameStart;
+	}
 
 private:
 	void UpdateEvilPos(float DeltaTime);
@@ -314,8 +339,8 @@ private:
 	// TaskDataBuffers 用于存储每个线程的任务数据, 64 Bytes 对齐
 	TaskBuffer TaskDataBuffers[MaxThreadCount];
 	// 在异步线程中执行
-	void GenerateOneTileAsync(int32 BufferIndex, int32 Difficulty, FInt32Point Tile, FVector2D PositionOffset);
-	void GenerateRandomPointsAsync(int32 BufferIndex, int32 Difficulty, FInt32Point Tile, TArray<RandomPoint>& RandomPoints);
+	void GenerateOneTileAsync(int64 Seed, int32 BufferIndex, int32 Difficulty, FInt32Point Tile, FVector2D PositionOffset);
+	void GenerateRandomPointsAsync(int64 Seed, int32 BufferIndex, int32 Difficulty, FInt32Point Tile, TArray<RandomPoint>& RandomPoints);
 
 	void GenerateUniformRandomPointsAsync(int32 BufferIndex, int32 Difficulty, TArray<RandomPoint>& RandomPoints);
 	// 使用泊松采样生成随机点

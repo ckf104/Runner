@@ -74,6 +74,9 @@ class ARunnerCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
 	UInputAction* ThrustAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
+	UInputAction* DebugForwardAction;
+
 	// UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug", meta = (AllowPrivateAccess = "true"))
 	// bool bAutoMove = false;
 
@@ -120,6 +123,7 @@ public:
 protected:
 	/** Called for movement input */
 	void Move(const FInputActionValue& Value);
+	void DebugForward(const FInputActionValue& Value);
 
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
