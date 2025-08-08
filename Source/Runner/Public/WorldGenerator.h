@@ -127,6 +127,7 @@ public:
 	FGraphEventRef AsyncTaskRef[MaxThreadCount]; // 异步任务引用
 	FInt32Point TilesInBuilding[MaxThreadCount]; // 每个线程的偏移量
 	int32 PMCIndexForTile[MaxThreadCount]; // 每个线程对应的 PMC 索引
+	int32 TileCreationState[MaxThreadCount] = { 0 };
 
 	UPROPERTY(VisibleAnywhere, Category = "World Generation")
 	mutable TObjectPtr<class UProceduralMeshComponent> ProceduralMeshComp[MaxRegionCount];
@@ -161,12 +162,17 @@ public:
 	}
 	bool CanRemoveTile(FInt32Point Tile) const;
 
+	void CreateGroundMesh(int32 BufferIndex);
+	void CreateBarriers(int32 BufferIndex, int32 BarrierIndex);
+	int32 GetInactivePMCIndex() const { return (ActivePMCIndex + 1) % MaxRegionCount; }
+	bool ClearInactivePMCTiles();
+
 	// 寻找一个可以替换的 section, 如果没有找到则返回 -1
 	int32 FindReplaceableSection(int32 PMCIndex);
 
 	// 发起一个异步任务来生成 tile 数据
 	bool GenerateOneTile(FInt32Point Tile);
-	void CreateMeshFromTileData();
+	bool CreateMeshFromTileData();
 	// 根据当前玩家的位置生成新的 tiles
 	void GenerateNewTiles();
 

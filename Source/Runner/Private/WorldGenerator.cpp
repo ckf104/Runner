@@ -484,6 +484,10 @@ bool AWorldGenerator::IsNeccessrayTile(FInt32Point Tile) const
 
 bool AWorldGenerator::CanRemoveTile(FInt32Point Tile) const
 {
+	if (Tile == FInt32Point(INT32_MAX, INT32_MAX))
+	{
+		return true; // Invalid tile
+	}
 	auto PlayerTile = GetPlayerTile();
 	if (bOneLineMode)
 	{
@@ -508,8 +512,8 @@ FVector2D AWorldGenerator::GetUVFromPosAnyThread(FVector Position) const
 	// Y = FMath::Fmod(Y + UVOffset.Y, MaxTextureCoords);
 
 	// 镜像纹理坐标
-	X = FMath::Fmod(X, 2* MaxTextureCoords);
-	Y = FMath::Fmod(Y, 2* MaxTextureCoords);
+	X = FMath::Fmod(X, 2 * MaxTextureCoords);
+	Y = FMath::Fmod(Y, 2 * MaxTextureCoords);
 	if (X > MaxTextureCoords)
 	{
 		X = 2 * MaxTextureCoords - X;
@@ -647,165 +651,198 @@ void AWorldGenerator::PostProcessHeightMap(FInt32Point Tile, TArray<FVector>& Ve
 	}
 }
 
-void AWorldGenerator::CreateMeshFromTileData()
+void AWorldGenerator::CreateGroundMesh(int32 BufferIndex)
 {
+	auto& TaskData = TaskDataBuffers[BufferIndex];
+	auto& VerticesBuffer = TaskData.VerticesBuffer;
+	auto& NormalsBuffer = TaskData.NormalsBuffer;
+	auto& UV0Buffer = TaskData.UV0Buffer;
+	auto& TangentsBuffer = TaskData.TangentsBuffer;
+
+	auto Tile = TilesInBuilding[BufferIndex];
+	PostProcessHeightMap(Tile, VerticesBuffer);
+
+	int32 PMCIndex = PMCIndexForTile[BufferIndex];
+	UProceduralMeshComponent* PMC = ProceduralMeshComp[PMCIndex];
+
+	auto SectionIdx = FindReplaceableSection(PMCIndex);
+	// See https://forums.unrealengine.com/t/procedural-mesh-does-not-update-collision-after-modifying-vertices/68174/2
+	// TODO: https://github.com/TriAxis-Games/RealtimeMeshComponent
+	// https://github.com/TriAxis-Games/RuntimeMeshComponent-Examples
+	if (SectionIdx == -1)
+	{
+		// Create a new section
+		PMC->CreateMeshSection(TileMap[PMCIndex].Num(), VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, UV1Buffer, TArray<FVector2D>(), TArray<FVector2D>(), TArray<FColor>(), TangentsBuffer, true);
+		auto* DynamicMat = UMaterialInstanceDynamic::Create(TileMaterial, this, NAME_None);
+		if (DynamicMat)
+		{
+			DynamicMat->SetScalarParameterValue("TileX", Tile.X);
+		}
+		PMC->SetMaterial(TileMap[PMCIndex].Num(), DynamicMat);
+		SectionIdx = TileMap[PMCIndex].Add(Tile);
+	}
+	else
+	{
+		// Update the existing section
+		auto* DynamicMat = Cast<UMaterialInstanceDynamic>(PMC->GetMaterial(SectionIdx));
+		if (DynamicMat)
+		{
+			DynamicMat->SetScalarParameterValue("TileX", Tile.X);
+		}
+		auto OldTile = TileMap[PMCIndex][SectionIdx];
+		if (OldTile != FInt32Point(INT32_MAX, INT32_MAX))
+		{
+			PMC->ClearMeshSection(SectionIdx);
+			// 通知 BarrierSpawner 移除旧的 tile 上的障碍物
+			for (ABarrierSpawner* BarrierSpawner : BarrierSpawners)
+			{
+				BarrierSpawner->RemoveTile(OldTile);
+			}
+		}
+		PMC->CreateMeshSection(SectionIdx, VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, UV1Buffer, TArray<FVector2D>(), TArray<FVector2D>(), TArray<FColor>(), TangentsBuffer, true);
+		PMC->SetMaterial(SectionIdx, DynamicMat);
+
+		TileMap[PMCIndex][SectionIdx] = Tile;
+		UE_LOG(LogWorldGenerator, Log, TEXT("Tile %s replaced with new tile %s in PMC %d"), *OldTile.ToString(), *Tile.ToString(), PMCIndex);
+		// 删除 CachedSpawnData 中对应 tile 的数据
+		auto RemoveNumber = CachedSpawnData.Remove(FIntVector(OldTile.X, OldTile.Y, PMCIndex));
+		if (RemoveNumber > 0)
+		{
+			UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData before used!"), PMCIndex, *FIntVector(OldTile.X, OldTile.Y, PMCIndex).ToString());
+		}
+	}
+}
+
+void AWorldGenerator::CreateBarriers(int32 BufferIndex, int32 BarrierIndex)
+{
+	auto& TaskData = TaskDataBuffers[BufferIndex];
+	auto& VerticesBuffer = TaskData.VerticesBuffer;
+	auto& NormalsBuffer = TaskData.NormalsBuffer;
+	auto& UV0Buffer = TaskData.UV0Buffer;
+	auto& TangentsBuffer = TaskData.TangentsBuffer;
+	auto& RandomPoints = TaskData.RandomPoints;
+	auto& BarriersCount = TaskData.BarriersCount;
+	auto Tile = TilesInBuilding[BufferIndex];
+
+	int32 StartIdx = 0;
+	for (int32 Idx = 0, TotalBarrier = BarrierSpawners.Num(); Idx <= BarrierIndex && Idx < TotalBarrier; ++Idx)
+	{
+		int32 BarCount = BarriersCount[Idx];
+		if (BarCount > 0 && Idx == BarrierIndex)
+		{
+			TArrayView<RandomPoint> RandomPointsView(&RandomPoints[StartIdx], BarCount);
+			if (BarrierSpawners[Idx]->bDeferSpawn)
+			{
+				CachedSpawnData.Add(FIntVector(Tile.X, Tile.Y, Idx), TArray<RandomPoint>(RandomPointsView));
+			}
+			else
+			{
+				BarrierSpawners[Idx]->SpawnBarriers(RandomPointsView, Tile, this);
+			}
+		}
+		StartIdx += BarCount;
+	}
+}
+
+bool AWorldGenerator::CreateMeshFromTileData()
+{
+	auto bHasAnyWork = false;
 	for (int32 i = 0; i < MaxThreadCount; ++i)
 	{
 		if (BufferStateGameThreadOnly[i] == EBufferState::Completed)
 		{
-			auto& TaskData = TaskDataBuffers[i];
-			auto& VerticesBuffer = TaskData.VerticesBuffer;
-			auto& NormalsBuffer = TaskData.NormalsBuffer;
-			auto& UV0Buffer = TaskData.UV0Buffer;
-			auto& TangentsBuffer = TaskData.TangentsBuffer;
-			auto& RandomPoints = TaskData.RandomPoints;
-			auto& BarriersCount = TaskData.BarriersCount;
-
-			auto Tile = TilesInBuilding[i];
-			PostProcessHeightMap(Tile, VerticesBuffer);
-
-			auto TestPos = FVector2D(Tile.X * CellSize * XCellNumber + (CellSize * XCellNumber / 2.0),
-					Tile.Y * CellSize * YCellNumber + (CellSize * YCellNumber / 2.0));
-			int32 PMCIndex = PMCIndexForTile[i];
-			UProceduralMeshComponent* PMC = ProceduralMeshComp[PMCIndex];
-
-			auto SectionIdx = FindReplaceableSection(PMCIndex);
-			// See https://forums.unrealengine.com/t/procedural-mesh-does-not-update-collision-after-modifying-vertices/68174/2
-			// TODO: https://github.com/TriAxis-Games/RealtimeMeshComponent
-			// https://github.com/TriAxis-Games/RuntimeMeshComponent-Examples
-			if (SectionIdx == -1)
+			if (TileCreationState[i] == 0)
 			{
-				// Create a new section
-				PMC->CreateMeshSection(TileMap[PMCIndex].Num(), VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, UV1Buffer, TArray<FVector2D>(), TArray<FVector2D>(), TArray<FColor>(), TangentsBuffer, true);
-				auto* DynamicMat = UMaterialInstanceDynamic::Create(TileMaterial, this, NAME_None);
-				if (DynamicMat)
-				{
-					DynamicMat->SetScalarParameterValue("TileX", Tile.X);
-				}
-				PMC->SetMaterial(TileMap[PMCIndex].Num(), DynamicMat);
-				SectionIdx = TileMap[PMCIndex].Add(Tile);
+				// 创建地形网格
+				CreateGroundMesh(i);
+				TileCreationState[i] = 1; // 标记为地形网格已创建
+				bHasAnyWork = true;
 			}
-			else
+			else if (TileCreationState[i] <= BarrierSpawners.Num())
 			{
-				// Update the existing section
-				auto* DynamicMat = Cast<UMaterialInstanceDynamic>(PMC->GetMaterial(SectionIdx));
-				if (DynamicMat)
-				{
-					DynamicMat->SetScalarParameterValue("TileX", Tile.X);
-				}
-				PMC->ClearMeshSection(SectionIdx);
-				PMC->CreateMeshSection(SectionIdx, VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, UV1Buffer, TArray<FVector2D>(), TArray<FVector2D>(), TArray<FColor>(), TangentsBuffer, true);
-				PMC->SetMaterial(SectionIdx, DynamicMat);
-				auto OldTile = TileMap[PMCIndex][SectionIdx];
-				// 通知 BarrierSpawner 移除旧的 tile 上的障碍物
-				for (ABarrierSpawner* BarrierSpawner : BarrierSpawners)
-				{
-					BarrierSpawner->RemoveTile(OldTile);
-				}
-				TileMap[PMCIndex][SectionIdx] = Tile;
-				UE_LOG(LogWorldGenerator, Log, TEXT("Tile %s replaced with new tile %s in PMC %d"), *OldTile.ToString(), *Tile.ToString(), PMCIndex);
-				// 删除 CachedSpawnData 中对应 tile 的数据
-				auto RemoveNumber = CachedSpawnData.Remove(FIntVector(OldTile.X, OldTile.Y, PMCIndex));
-				if (RemoveNumber > 0)
-				{
-					UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData!"), PMCIndex, *FIntVector(OldTile.X, OldTile.Y, PMCIndex).ToString());
-				}
+				// 创建障碍物
+				int32 BarrierIndex = TileCreationState[i] - 1; // BarrierIndex 从 0 开始
+				CreateBarriers(i, BarrierIndex);
+				TileCreationState[i]++; // 标记为下一个障碍物已创建
+				bHasAnyWork = true;
 			}
 
-			// Spawn barriers
-			auto NewTile = TileMap[PMCIndex][SectionIdx];
-			int32 StartIdx = 0;
-			for (int32 Idx = 0, TotalBarrier = BarrierSpawners.Num(); Idx < TotalBarrier; ++Idx)
+			if (TileCreationState[i] == BarrierSpawners.Num() + 1)
 			{
-				int32 BarCount = BarriersCount[Idx];
-				if (BarCount > 0)
+				// 所有障碍物都已创建，重置状态
+				TileCreationState[i] = 0;
+				// 释放 slot
+				BufferStateGameThreadOnly[i] = EBufferState::Idle; // Reset the buffer state
+				// if (AsyncTaskRef[i])
 				{
-					TArrayView<RandomPoint> RandomPointsView(&RandomPoints[StartIdx], BarCount);
-					if (BarrierSpawners[Idx]->bDeferSpawn)
-					{
-						CachedSpawnData.Add(FIntVector(NewTile.X, NewTile.Y, Idx), TArray<RandomPoint>(RandomPointsView));
-					}
-					else
-					{
-						BarrierSpawners[Idx]->SpawnBarriers(RandomPointsView, NewTile, this);
-					}
-					StartIdx += BarCount;
+					AsyncTaskRef[i]->Release();
+					AsyncTaskRef[i] = nullptr;
 				}
+				TilesInBuilding[i] = FInt32Point(INT32_MAX, INT32_MAX); // Reset the tile in building
 			}
+
+			break;
 			// 可视化采样点
-			if (bDrawSamplingPoint && Tile.X == 50)
-			{
-				FColor Colors[4] = { FColor::Red, FColor::Green, FColor::Blue, FColor::Yellow };
-				int32 ColorIdx = 0;
-				auto CurrentGroupIndex = BarrierSpawners[0]->BarrierGroup;
-				TArray<FVector> WorldPositions;
-				TArray<FVector2D> UVPositions;
-				TArray<FVector2D> SameGroupPos;
-				StartIdx = 0;
-				for (int32 Idx = 0, TotalBarrier = BarrierSpawners.Num(); Idx < TotalBarrier; ++Idx)
-				{
-					if (BarrierSpawners[Idx]->BarrierGroup != CurrentGroupIndex)
-					{
-						ColorIdx = (ColorIdx + 1) % 4; // Change color for next group
-						if (bCheckPoissonSampling && CurrentGroupIndex == 0)
-						{
-							for (int32 m = 0; m < SameGroupPos.Num(); ++m)
-							{
-								for (int32 j = m + 1; j < SameGroupPos.Num(); ++j)
-								{
-									auto Dist = FVector2D::Distance(SameGroupPos[m], SameGroupPos[j]);
-									if (Dist < 1200)
-									{
-										UE_LOG(LogWorldGenerator, Error, TEXT("Poisson sampling points too close: %s and %s, distance: %f, Tile %s"),
-												*SameGroupPos[m].ToString(), *SameGroupPos[j].ToString(), Dist, *NewTile.ToString());
-									}
-								}
-							}
-							SameGroupPos.Empty(); // Clear for next group
-						}
-					}
-					CurrentGroupIndex = BarrierSpawners[Idx]->BarrierGroup;
-					FColor CurrentColor = Colors[ColorIdx];
-					auto BarCount = BarriersCount[Idx];
-					auto EndIdx = StartIdx + BarCount;
-					for (; StartIdx < EndIdx; ++StartIdx)
-					{
-						auto& RandomPos = RandomPoints[StartIdx];
-						SameGroupPos.Add(FVector2D(RandomPos.UVPos.X * CellSize * XCellNumber, RandomPos.UVPos.Y * CellSize * YCellNumber));
-						auto WorldPos = GetVisualWorldPositionFromUV(RandomPos.UVPos, NewTile);
-						DrawDebugBox(GetWorld(), WorldPos, FVector(100.0f), CurrentColor, true, 5.0f);
-						WorldPositions.Add(WorldPos);
-						UVPositions.Add(RandomPos.UVPos);
-					}
-					StartIdx = EndIdx; // Update StartIdx for the next barrier
-				}
-				UVPositions.Sort([](const FVector2D& A, const FVector2D& B) {
-					return A.X < B.X;
-				});
-				WorldPositions.Sort([](const FVector& A, const FVector& B) {
-					return A.X < B.X;
-				});
-				// for (auto WorldPos : WorldPositions)
-				// {
-				// 	// DrawDebugBox(GetWorld(), WorldPos, FVector(100.0f), FColor::Red, true, 5.0f);
-				// }
-			}
-			if (!bGameStart && Tile == PlayerStartTile)
-			{
-				auto* GameMode = Cast<ARunnerGameMode>(UGameplayStatics::GetGameMode(this));
-				// TODO
-			}
-
-			// 释放 slot
-			BufferStateGameThreadOnly[i] = EBufferState::Idle; // Reset the buffer state
-			// if (AsyncTaskRef[i])
-			{
-				AsyncTaskRef[i]->Release();
-				AsyncTaskRef[i] = nullptr;
-			}
-			TilesInBuilding[i] = FInt32Point(INT32_MAX, INT32_MAX); // Reset the tile in building
+			// if (bDrawSamplingPoint && Tile.X == 50)
+			// {
+			// 	FColor Colors[4] = { FColor::Red, FColor::Green, FColor::Blue, FColor::Yellow };
+			// 	int32 ColorIdx = 0;
+			// 	auto CurrentGroupIndex = BarrierSpawners[0]->BarrierGroup;
+			// 	TArray<FVector> WorldPositions;
+			// 	TArray<FVector2D> UVPositions;
+			// 	TArray<FVector2D> SameGroupPos;
+			// 	StartIdx = 0;
+			// 	for (int32 Idx = 0, TotalBarrier = BarrierSpawners.Num(); Idx < TotalBarrier; ++Idx)
+			// 	{
+			// 		if (BarrierSpawners[Idx]->BarrierGroup != CurrentGroupIndex)
+			// 		{
+			// 			ColorIdx = (ColorIdx + 1) % 4; // Change color for next group
+			// 			if (bCheckPoissonSampling && CurrentGroupIndex == 0)
+			// 			{
+			// 				for (int32 m = 0; m < SameGroupPos.Num(); ++m)
+			// 				{
+			// 					for (int32 j = m + 1; j < SameGroupPos.Num(); ++j)
+			// 					{
+			// 						auto Dist = FVector2D::Distance(SameGroupPos[m], SameGroupPos[j]);
+			// 						if (Dist < 1200)
+			// 						{
+			// 							UE_LOG(LogWorldGenerator, Error, TEXT("Poisson sampling points too close: %s and %s, distance: %f, Tile %s"),
+			// 									*SameGroupPos[m].ToString(), *SameGroupPos[j].ToString(), Dist, *NewTile.ToString());
+			// 						}
+			// 					}
+			// 				}
+			// 				SameGroupPos.Empty(); // Clear for next group
+			// 			}
+			// 		}
+			// 		CurrentGroupIndex = BarrierSpawners[Idx]->BarrierGroup;
+			// 		FColor CurrentColor = Colors[ColorIdx];
+			// 		auto BarCount = BarriersCount[Idx];
+			// 		auto EndIdx = StartIdx + BarCount;
+			// 		for (; StartIdx < EndIdx; ++StartIdx)
+			// 		{
+			// 			auto& RandomPos = RandomPoints[StartIdx];
+			// 			SameGroupPos.Add(FVector2D(RandomPos.UVPos.X * CellSize * XCellNumber, RandomPos.UVPos.Y * CellSize * YCellNumber));
+			// 			auto WorldPos = GetVisualWorldPositionFromUV(RandomPos.UVPos, NewTile);
+			// 			DrawDebugBox(GetWorld(), WorldPos, FVector(100.0f), CurrentColor, true, 5.0f);
+			// 			WorldPositions.Add(WorldPos);
+			// 			UVPositions.Add(RandomPos.UVPos);
+			// 		}
+			// 		StartIdx = EndIdx; // Update StartIdx for the next barrier
+			// 	}
+			// 	UVPositions.Sort([](const FVector2D& A, const FVector2D& B) {
+			// 		return A.X < B.X;
+			// 	});
+			// 	WorldPositions.Sort([](const FVector& A, const FVector& B) {
+			// 		return A.X < B.X;
+			// 	});
+			// 	// for (auto WorldPos : WorldPositions)
+			// 	// {
+			// 	// 	// DrawDebugBox(GetWorld(), WorldPos, FVector(100.0f), FColor::Red, true, 5.0f);
+			// 	// }
+			// }
 		}
 	}
+	return bHasAnyWork;
 }
 
 void AWorldGenerator::PMCClear(int32 ReplaceableIndex)
@@ -907,6 +944,35 @@ bool AWorldGenerator::GenerateOneTile(FInt32Point Tile)
 	return true;
 }
 
+bool AWorldGenerator::ClearInactivePMCTiles()
+{
+	auto PMCIndex = GetInactivePMCIndex();
+	auto bHasAnyWork = false;
+
+	for (int MeshIndex = 0; MeshIndex < TileMap[PMCIndex].Num(); ++MeshIndex)
+	{
+		auto Tile = TileMap[PMCIndex][MeshIndex];
+		if (!IsNeccessrayTile(Tile) && Tile != FInt32Point(INT32_MAX, INT32_MAX))
+		{
+			bHasAnyWork = true;
+			for (ABarrierSpawner* Spawner : BarrierSpawners)
+			{
+				Spawner->RemoveTile(Tile);
+			}
+
+			// 删除 CachedSpawnData 中对应 tile 的数据
+			auto RemovedNumber = CachedSpawnData.Remove(FIntVector(Tile.X, Tile.Y, PMCIndex));
+			if (RemovedNumber > 0)
+			{
+				UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s removed from CachedSpawnData before used!"), PMCIndex, *Tile.ToString());
+			}
+			ProceduralMeshComp[PMCIndex]->ClearMeshSection(MeshIndex);
+			TileMap[PMCIndex][MeshIndex] = FInt32Point(INT32_MAX, INT32_MAX); // Mark this tile as invalid
+		}
+	}
+	return bHasAnyWork;
+}
+
 void AWorldGenerator::GenerateNewTiles()
 {
 	// Get the player location
@@ -916,10 +982,36 @@ void AWorldGenerator::GenerateNewTiles()
 		return;
 	}
 
-	auto PlayerTile = GetPlayerTile();
+	do
+	{
+		auto bHasAnyWork = ClearInactivePMCTiles();
+		if (bHasAnyWork)
+		{
+			// 如果有工作要做，直接返回
+			break;
+		}
+		bHasAnyWork = CreateMeshFromTileData(); // Process any completed tile data
+		if (bHasAnyWork)
+		{
+			// 如果有工作要做，直接返回
+			break;
+		}
+		for (auto It = CachedSpawnData.CreateIterator(); It; ++It)
+		{
+			auto Tile = FInt32Point(It.Key().X, It.Key().Y);
+			int32 BarrierIndex = It.Key().Z;
+			auto bSuccess = BarrierSpawners[BarrierIndex]->DeferSpawnBarriers(It.Value(), Tile, this);
+			if (bSuccess)
+			{
+				// UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s spawned barriers from CachedSpawnData!"), ReplacableIndex, *Tile.ToString());
+				It.RemoveCurrent();
+			}
+		}
+	}
+	while (0);
 
-	CreateMeshFromTileData(); // Process any completed tile data
 	// Generate new tiles around the player
+	auto PlayerTile = GetPlayerTile();
 	if (bOneLineMode)
 	{
 		// 在一行模式下，只生成玩家所在行的 tile
@@ -955,40 +1047,6 @@ void AWorldGenerator::GenerateNewTiles()
 			}
 		}
 	}
-
-	for (int32 i = 0; i < MaxRegionCount; ++i)
-	{
-		if (TileMap[i].Num() > 0)
-		{
-			auto bHasNeccessaryTiles = false;
-			for (auto Tile : TileMap[i])
-			{
-				if (IsNeccessrayTile(Tile))
-				{
-					bHasNeccessaryTiles = true;
-					break;
-				}
-			}
-			if (!bHasNeccessaryTiles)
-			{
-				// 如果没有必要的 tile，则清除这个 PMC
-				UE_LOG(LogWorldGenerator, Warning, TEXT("Clearing PMC %d, removing %d tiles in PlayerTile %s"), i, TileMap[i].Num(), *PlayerTile.ToString());
-				PMCClear(i);
-			}
-		}
-	}
-
-	for (auto It = CachedSpawnData.CreateIterator(); It; ++It)
-	{
-		auto Tile = FInt32Point(It.Key().X, It.Key().Y);
-		int32 BarrierIndex = It.Key().Z;
-		auto bSuccess = BarrierSpawners[BarrierIndex]->DeferSpawnBarriers(It.Value(), Tile, this);
-		if (bSuccess)
-		{
-			// UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s spawned barriers from CachedSpawnData!"), ReplacableIndex, *Tile.ToString());
-			It.RemoveCurrent();
-		}
-	}
 }
 
 bool AWorldGenerator::ConditionalMoveWorldOrigin()
@@ -1008,6 +1066,10 @@ bool AWorldGenerator::ConditionalMoveWorldOrigin()
 		// 更新 TileMap 中的 Tile 坐标，并更新 Tile 的材质参数
 		for (int32 i = 0, NumTiles = TileMap[PMCIndex].Num(); i < NumTiles; ++i)
 		{
+			if (TileMap[PMCIndex][i] == FInt32Point(INT32_MAX, INT32_MAX))
+			{
+				continue; // Skip invalid tiles
+			}
 			TileMap[PMCIndex][i].X -= MoveOriginXTile;
 			Cast<UMaterialInstanceDynamic>(PMC->GetMaterial(i))->SetScalarParameterValue("TileX", TileMap[PMCIndex][i].X);
 		}
@@ -1047,7 +1109,6 @@ bool AWorldGenerator::ConditionalMoveWorldOrigin()
 		UProceduralMeshComponent* NewPMC = nullptr;
 		Tie(NewPMC, NewPMCIndex) = GetActivePMC();
 		ensure(NewPMC != PMC);
-		ensure(NewPMC->GetNumSections() == 0);
 		NewPMC->SetWorldLocation(FVector(0.0, 0.0, 0.0));
 
 		// 偏移角色, 使用 TeleportTo 而不是 SetActorLocation，保证移动组件能知道该消息！
@@ -1544,8 +1605,6 @@ void AWorldGenerator::OnConstruction(const FTransform& Transform)
 	UProceduralMeshComponent* PMC = nullptr;
 	int32 PMCIndex = -1;
 	Tie(PMC, PMCIndex) = GetActivePMC();
-
-	auto SectionIdx = FindReplaceableSection(PMCIndex);
 
 	// Create a new section
 	PMC->CreateMeshSection(TileMap[PMCIndex].Num(), VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, UV1Buffer, TArray<FVector2D>(), TArray<FVector2D>(), TArray<FColor>(), TangentsBuffer, true);
