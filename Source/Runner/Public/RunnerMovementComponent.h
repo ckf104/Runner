@@ -139,7 +139,10 @@ public:
 	float TraceDistanceToFindFloor = 200.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
-	float BadReduceSpeedScale = 0.6f;
+	float BadLandReduceSpeedScale = 0.6f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
+	float MudReduceSpeedScale = 0.5f;
 
 	UPROPERTY(EditAnywhere, Category = "Skate Controller")
 	float GasPercentageWhenPerfect = 0.2f;
@@ -160,6 +163,34 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Skate Controller")
 	float GameStartVelocity = 2500.0f;
 
+	UPROPERTY(EditAnywhere, Category = "Items")
+	float FlyStiffness = 50.0f; // 弹簧模型的刚度
+
+	UPROPERTY(EditAnywhere, Category = "Items")
+	float FlyDamping = 10.0f; // 弹簧模型的阻尼
+
+	UPROPERTY(EditAnywhere, Category = "Items")
+	float TargetHeightInFlying = 2500.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Items")
+	float TargetTimeInFlying = 1.5f;
+
+	UPROPERTY(EditAnywhere, Category = "Items")
+	float StartZVelocityInFlying = 2000.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Items")
+	float EndZVelocityInFlying = 100.0f; // 飞行结束时的 Z 速度
+
+	double V0;
+	double A;
+	double InitZ;
+	float FlyTime = 0.0f;
+
+	float RealTargetHeightInFlying;
+
+	UPROPERTY(EditAnywhere, Category = "Items")
+	float TargetSpeedInFlying = 1000.0f;
+
 	// 是否使用曲率来判断起飞
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	bool bUseCurvatureForTakeoff = true;
@@ -175,13 +206,15 @@ public:
 
 	// 有多种来源，因此使用 int8 来表示状态
 	int8 Thrusting = false;
-	int8 SlowDown = false;
 
 	bool bGameStart = false;
 
 	// 音效
 	UPROPERTY(EditAnywhere, Category = "Sound")
 	TObjectPtr<class USoundBase> TakeOffSound;
+
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	TObjectPtr<class USoundBase> LightningSound; // 拾到闪电时的声音
 
 	// UPROPERTY(EditAnywhere, Category = "Sound")
 	// TObjectPtr<class USoundBase> LandSound;
@@ -198,8 +231,8 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Sound")
 	float LandAudioInterval = 0.5f;
 
-	// UPROPERTY(EditAnywhere, Category = "Sound")
-	// float PlayTakeOffSoundInAirTime = 0.2f;
+	UPROPERTY(EditAnywhere, Category = "Sound")
+	float PlayTakeOffSoundInAirTime = 0.5f;
 
 	UPROPERTY(EditAnywhere, Category = "Sound")
 	float PlayTakeOffSoundMinHeight = 300.0f;
@@ -212,6 +245,8 @@ public:
 
 	// 播放受伤音效
 	void TakeDamage();
+	// 播放冲刺音效
+	void PlayLightningSound();
 
 	// 不会随着平台移动而移动
 	void UpdateBasedMovement(float DeltaSeconds) override {};
@@ -242,6 +277,11 @@ protected:
 	float GetMaxSpeed() const override;
 
 	void OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity) override;
+	void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
+
+	bool StepUpWhenFalling(const FVector& GravDir, const FVector& Delta, const FHitResult &Hit);
+
+	void PhysCustom(float deltaTime, int32 Iterations) override;
 
 	UFUNCTION()
 	void UFuncOnMovementUpdated(float DeltaSeconds, FVector OldLocation, FVector OldVelocity);
@@ -255,16 +295,6 @@ public:
 	}
 	void StartDown();
 	void StopDown();
-	void StartSlowDown() { SlowDown++; }
-	void StopSlowDown()
-	{
-		SlowDown--;
-		// ensure(SlowDown >= 0);
-		if (SlowDown < 0)
-		{
-			SlowDown = 0;
-		}
-	}
 	// bool HandleBlockingHit(const FHitResult& Hit);
 
 	void StartFalling(int32 Iterations, float remainingTime, float timeTick, const FVector& Delta, const FVector& subLoc) override;

@@ -15,8 +15,20 @@ class RUNNER_API ALaserSpawner : public ABPBarrierSpawner
 	GENERATED_BODY()
 
 public:
+
+	void BeginPlay() override;
 	void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) override;
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Category = "Laser")
 	int32 OneLineLaserNumber = 2; // 每行激光的数量
+
+	UPROPERTY(EditAnywhere, Category = "Laser")
+	float LaserDistance = 200.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Laser")
+	float ProbabilityForBaseLaser = 0.8f;
+
+	UPROPERTY(EditAnywhere)
+	TSubclassOf<class AActor> AnotherLaserClass;
+
 };

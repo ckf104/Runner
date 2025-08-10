@@ -3,6 +3,7 @@
 #include "RunnerMovementComponent.h"
 #include "BarrierSpawner.h"
 #include "Components/AudioComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
@@ -14,6 +15,7 @@
 #include "EngineUtils.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/PhysicsVolume.h"
 #include "Kismet/GameplayStatics.h"
 #include "Logging/LogVerbosity.h"
 #include "Math/Color.h"
@@ -91,13 +93,18 @@ void URunnerMovementComponent::BeginPlay()
 
 void URunnerMovementComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
+	if (MovementMode == MOVE_Custom)
+	{
+		FlyTime += DeltaTime;
+	}
+
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	// 移动后更新滑板的旋转
 	UpdateSkateBoardRotation(DeltaTime);
 	auto OldInAirTime = InAirTime;
 	InAirTime += DeltaTime;
 	// if (OldInAirTime < PlayTakeOffSoundInAirTime && InAirTime >= PlayTakeOffSoundInAirTime)
-	if (!bHipHop)
+	if (!bHipHop && MovementMode == MOVE_Falling && InAirTime >= PlayTakeOffSoundInAirTime)
 	{
 		if (LandAudio && !LandAudio->IsPlaying() && CurrentAudioInterval >= LandAudioInterval)
 		{
@@ -117,6 +124,12 @@ void URunnerMovementComponent::TickComponent(float DeltaTime, enum ELevelTick Ti
 
 	CurrentAudioInterval += DeltaTime;
 	// UE_LOG(LogRunnerMovement, Log, TEXT("Skateboard Ground Velocity Size: %f, Thrusting: %d, SlowDown: %d, MaxSpeed: %f"), Velocity.Size2D(), Thrusting, SlowDown, GetMaxSpeed());
+
+	if (Velocity.Z <= EndZVelocityInFlying && MovementMode == MOVE_Custom)
+	{
+		UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent::TickComponent: End Flying, FlyTime: %f"), FlyTime);
+		SetMovementMode(MOVE_Falling);
+	}
 }
 
 FVector URunnerMovementComponent::ConsumeInputVector()
@@ -131,7 +144,7 @@ FVector URunnerMovementComponent::ConsumeInputVector()
 		{
 
 			auto Ret = Super::ConsumeInputVector();
-			UE_LOG(LogRunnerMovement, Log, TEXT("ConsumeInputVector: %s"), *Ret.ToString());
+			// UE_LOG(LogRunnerMovement, Log, TEXT("ConsumeInputVector: %s"), *Ret.ToString());
 			return Ret;
 		}
 	}
@@ -239,10 +252,6 @@ void URunnerMovementComponent::ProcessLanded(const FHitResult& Hit, float remain
 	auto* Runner = Cast<ARunnerCharacter>(GetOwner());
 	if (Hit.GetActor() == WorldGenerator)
 	{
-		if (Runner->IsInMud())
-		{
-			Runner->StartSlowDown(ESlowDownSource::Mud);
-		}
 		if (InAirTime > MinimumAirTime)
 		{
 			auto LandLevel = ELevel::Bad;
@@ -297,7 +306,7 @@ void URunnerMovementComponent::ProcessLandLevel(ELevel LandLevel)
 				Runner->GetWorld()->GetTimerManager().SetTimer(SlowDownTimerHandle, [WeakRunner]() {
 					if (WeakRunner.IsValid())
 					{
-						WeakRunner->StopSlowDown();
+						WeakRunner->StopSlowDown(ESlowDownSource::BadLand);
 					} }, BadReduceSpeedTime, false);
 			}
 			break;
@@ -657,25 +666,6 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 	auto OldHitActor = OldFloor.HitResult.GetActor();
 	auto NewHitActor = NewFloor.HitResult.GetActor();
 
-	if (OldHitActor == WorldGenerator && NewHitActor != WorldGenerator)
-	{
-		// 离开地面，脱离泥潭
-		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
-		if (Runner->IsInMud())
-		{
-			Runner->StopSlowDown();
-		}
-	}
-	else if (OldHitActor != WorldGenerator && NewHitActor == WorldGenerator)
-	{
-		// 重新接触地面
-		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
-		if (Runner->IsInMud())
-		{
-			Runner->StartSlowDown(ESlowDownSource::Mud);
-		}
-	}
-
 	// 只处理地面的情况
 	if (OldHitActor != WorldGenerator || NewHitActor != WorldGenerator)
 	{
@@ -702,8 +692,8 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 	auto Delta = WorldGenerator->CellSize;
 	// auto CurrentPos =
 
-	auto TanNew = FVector::VectorPlaneProject(VelocityDir, OldNormal);
-	auto TanOld = FVector::VectorPlaneProject(VelocityDir, NewNormal);
+	auto TanNew = FVector::VectorPlaneProject(VelocityDir, NewNormal);
+	auto TanOld = FVector::VectorPlaneProject(VelocityDir, OldNormal);
 
 	// 计算一阶导数
 	auto SizeNew = TanNew.Size2D();
@@ -727,25 +717,16 @@ bool URunnerMovementComponent::ShouldCatchAir(const FFindFloorResult& OldFloor, 
 	auto OldDot = FVector::DotProduct(OldNormal, VelocityDir);
 	auto NewDot = FVector::DotProduct(NewNormal, VelocityDir);
 
-	if (bUseCurvatureForTakeoff && Curvature * VelocitySize * VelocitySize > TakeoffThreshold)
+	auto Final = -Curvature * VelocitySize * VelocitySize;
+	// UE_LOG(LogRunnerMovement, Log, TEXT("Final Curvature: %lf, TakeoffThreshold: %lf"), Final, TakeoffThreshold);
+
+	if (bUseCurvatureForTakeoff && Final > TakeoffThreshold)
 	{
-		// 离开地面，脱离泥潭
-		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
-		if (Runner->IsInMud())
-		{
-			Runner->StopSlowDown();
-		}
 		// UE_LOG(LogRunnerMovement, Warning, TEXT("ShouldCatchAir: StartFalling!"));
 		return true;
 	}
 	else if (!bUseCurvatureForTakeoff && (NewDot - OldDot) >= DeltaNormalThreshold)
 	{
-		// 离开地面，脱离泥潭
-		auto* Runner = Cast<ARunnerCharacter>(GetOwner());
-		if (Runner->IsInMud())
-		{
-			Runner->StopSlowDown();
-		}
 		// UE_LOG(LogRunnerMovement, Warning, TEXT("ShouldCatchAir: OldDot: %f, NewDot: %f, Delta: %f"), OldDot, NewDot, NewDot - OldDot);
 		return true;
 	}
@@ -795,106 +776,9 @@ double URunnerMovementComponent::CalcStartZVelocity() const
 // MaxWalkingSpeed 此时限制的是 skateboard 的水平速度
 void URunnerMovementComponent::CalcVelocity(float DeltaTime, float Friction, bool bFluid, float BrakingDeceleration)
 {
-	auto OOldVelocity = Velocity;
-	// Super::CalcVelocity(DeltaTime, Friction, bFluid, BrakingDeceleration);
-
-	if (!HasValidData() || HasAnimRootMotion() || DeltaTime < MIN_TICK_TIME || (CharacterOwner && CharacterOwner->GetLocalRole() == ROLE_SimulatedProxy && !bWasSimulatingRootMotion))
-	{
-		return;
-	}
-
-	Friction = FMath::Max(0.f, Friction);
-	const float MaxAccel = GetMaxAcceleration();
-	float MaxSpeed = GetMaxSpeed();
-
-	// Check if path following requested movement
-	bool bZeroRequestedAcceleration = true;
-	FVector RequestedAcceleration = FVector::ZeroVector;
-	float RequestedSpeed = 0.0f;
-	if (ApplyRequestedMove(DeltaTime, MaxAccel, MaxSpeed, Friction, BrakingDeceleration, RequestedAcceleration, RequestedSpeed))
-	{
-		bZeroRequestedAcceleration = false;
-	}
-
-	if (bForceMaxAccel)
-	{
-		// Force acceleration at full speed.
-		// In consideration order for direction: Acceleration, then Velocity, then Pawn's rotation.
-		if (Acceleration.SizeSquared() > UE_SMALL_NUMBER)
-		{
-			Acceleration = Acceleration.GetSafeNormal() * MaxAccel;
-		}
-		else
-		{
-			Acceleration = MaxAccel * (Velocity.SizeSquared() < UE_SMALL_NUMBER ? UpdatedComponent->GetForwardVector() : Velocity.GetSafeNormal());
-		}
-
-		AnalogInputModifier = 1.f;
-	}
-
-	// Path following above didn't care about the analog modifier, but we do for everything else below, so get the fully modified value.
-	// Use max of requested speed and max speed if we modified the speed in ApplyRequestedMove above.
-	const float MaxInputSpeed = FMath::Max(MaxSpeed * AnalogInputModifier, GetMinAnalogSpeed());
-	MaxSpeed = FMath::Max(RequestedSpeed, MaxInputSpeed);
-
-	// Apply braking or deceleration
-	const bool bZeroAcceleration = Acceleration.IsZero();
-	const bool bVelocityOverMax = IsExceedingMaxSpeed(MaxSpeed);
-
-	// Only apply braking if there is no acceleration, or we are over our max speed and need to slow down to it.
-	if ((bZeroAcceleration && bZeroRequestedAcceleration) || bVelocityOverMax)
-	{
-		const FVector OldVelocity = Velocity;
-
-		const float ActualBrakingFriction = (bUseSeparateBrakingFriction ? BrakingFriction : Friction);
-		ApplyVelocityBraking(DeltaTime, ActualBrakingFriction, BrakingDeceleration);
-
-		// Don't allow braking to lower us below max speed if we started above it.
-		if (bVelocityOverMax && Velocity.SizeSquared() < FMath::Square(MaxSpeed) && FVector::DotProduct(Acceleration, OldVelocity) > 0.0f)
-		{
-			Velocity = OldVelocity.GetSafeNormal() * MaxSpeed;
-		}
-	}
-	else if (!bZeroAcceleration)
-	{
-		// Friction affects our ability to change direction. This is only done for input acceleration, not path following.
-		const FVector AccelDir = Acceleration.GetSafeNormal();
-		const float VelSize = Velocity.Size();
-		Velocity = Velocity - (Velocity - AccelDir * VelSize) * FMath::Min(DeltaTime * Friction, 1.f);
-	}
-	auto VectorImm = Velocity;
-
-	// Apply fluid friction
-	if (bFluid)
-	{
-		Velocity = Velocity * (1.f - FMath::Min(Friction * DeltaTime, 1.f));
-	}
-
-	auto NewMaxInput = 0.0f;
-	auto VectorImm2 = FVector::ZeroVector;
-	// Apply input acceleration
-	if (!bZeroAcceleration)
-	{
-		const float NewMaxInputSpeed = IsExceedingMaxSpeed(MaxInputSpeed) ? Velocity.Size() : MaxInputSpeed;
-		Velocity += Acceleration * DeltaTime;
-		Velocity = Velocity.GetClampedToMaxSize(NewMaxInputSpeed);
-
-		VectorImm2 = Velocity;
-		NewMaxInput = NewMaxInputSpeed;
-	}
-
-	// Apply additional requested acceleration
-	if (!bZeroRequestedAcceleration)
-	{
-		const float NewMaxRequestedSpeed = IsExceedingMaxSpeed(RequestedSpeed) ? Velocity.Size() : RequestedSpeed;
-		Velocity += RequestedAcceleration * DeltaTime;
-		Velocity = Velocity.GetClampedToMaxSize(NewMaxRequestedSpeed);
-	}
-
-	if (bUseRVOAvoidance)
-	{
-		CalcAvoidanceVelocity(DeltaTime);
-	}
+	auto ZVelocity = Velocity.Z;
+	Velocity.Z = 0.0;
+	Super::CalcVelocity(DeltaTime, Friction, bFluid, BrakingDeceleration);
 
 	// UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent::CalcVelocity called with bZeroRequestedAcceleration: %s, bVelocityOverMax: %s, AnalogInputModifier: %f, MaxSpeed: %f"), bZeroRequestedAcceleration ? TEXT("true") : TEXT("false"), bVelocityOverMax ? TEXT("true") : TEXT("false"), AnalogInputModifier, MaxSpeed);
 	// UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent::CalcVelocity called with VectorImm: %s, VectorImm2: %s, NewMaxInput: %f"), *VectorImm.ToString(), *VectorImm2.ToString(), NewMaxInput);
@@ -907,12 +791,28 @@ void URunnerMovementComponent::CalcVelocity(float DeltaTime, float Friction, boo
 		Velocity.Y = NewVelocity.Y;
 		// Velocity.Z = NewVelocity.Z;
 	}
+	if (MovementMode == MOVE_Custom)
+	{
+		auto Acc = FlyStiffness * (TargetHeightInFlying - GetOwner()->GetActorLocation().Z) + FlyDamping * (TargetSpeedInFlying - Velocity.Z);
+		Velocity.Z = V0 - A * FlyTime * FlyTime;
+		Velocity.Z = FMath::Max(Velocity.Z, 0.0);
+		// UE_LOG(LogRunnerMovement, Log, TEXT("URunnerMovementComponent::CalcVelocity: In Flying Mode, Acc: %f, Old Z Velocity: %f, New Z Velocity: %f, Ground Speed: %f"), Acc, ZVelocity, Velocity.Z, Velocity.Size2D());
+	}
 }
 
 float URunnerMovementComponent::GetMaxSpeed() const
 {
 	auto Ret = Thrusting > 0 ? MaxThrustSpeed : MaxWalkSpeed;
-	auto Scale = SlowDown > 0 ? BadReduceSpeedScale : 1.0f;
+	auto* Runner = Cast<ARunnerCharacter>(GetOwner());
+	auto Scale = 1.0f;
+	if (Runner->MudSlowDown)
+	{
+		Scale = MudReduceSpeedScale;
+	}
+	else if (Runner->BadLandSlowDown)
+	{
+		Scale = BadLandReduceSpeedScale;
+	}
 	return Ret * Scale;
 }
 
@@ -1296,8 +1196,163 @@ void URunnerMovementComponent::PhysWalking2(float deltaTime, int32 Iterations)
 
 void URunnerMovementComponent::PhysFalling(float deltaTime, int32 Iterations)
 {
-	Super::PhysFalling(deltaTime, Iterations);
-	// PhysFalling2(deltaTime, Iterations);
+	// Super::PhysFalling(deltaTime, Iterations);
+	PhysFalling2(deltaTime, Iterations);
+}
+
+bool URunnerMovementComponent::StepUpWhenFalling(const FVector& GravDir, const FVector& Delta, const FHitResult& InHit)
+{
+	const FVector OldLocation = UpdatedComponent->GetComponentLocation();
+	float PawnRadius, PawnHalfHeight;
+	CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleSize(PawnRadius, PawnHalfHeight);
+
+	// Don't bother stepping up if top of capsule is hitting something.
+	const float InitialImpactZ = InHit.ImpactPoint | -GravDir;
+	const float OldLocationZ = OldLocation | -GravDir;
+	if (InitialImpactZ > OldLocationZ + (PawnHalfHeight - PawnRadius))
+	{
+		return false;
+	}
+
+	if (GravDir.IsZero())
+	{
+		return false;
+	}
+
+	// Gravity should be a normalized direction
+	ensure(GravDir.IsNormalized());
+
+	float StepTravelUpHeight = MaxStepHeight;
+	float StepTravelDownHeight = StepTravelUpHeight;
+	const float StepSideZ = -1.f * FVector::DotProduct(InHit.ImpactNormal, GravDir);
+	float PawnInitialFloorBaseZ = OldLocationZ - PawnHalfHeight;
+	float PawnFloorPointZ = PawnInitialFloorBaseZ;
+
+	// Don't step up if the impact is below us, accounting for distance from floor.
+	if (InitialImpactZ <= PawnInitialFloorBaseZ)
+	{
+		return false;
+	}
+
+	// Scope our movement updates, and do not apply them until all intermediate moves are completed.
+	FScopedMovementUpdate ScopedStepUpMovement(UpdatedComponent, EScopedUpdate::DeferredUpdates);
+
+	// step up - treat as vertical wall
+	FHitResult SweepUpHit(1.f);
+	const FQuat PawnRotation = UpdatedComponent->GetComponentQuat();
+	MoveUpdatedComponent(-GravDir * StepTravelUpHeight, PawnRotation, true, &SweepUpHit);
+
+	if (SweepUpHit.bStartPenetrating)
+	{
+		// Undo movement
+		ScopedStepUpMovement.RevertMove();
+		return false;
+	}
+
+	// step fwd
+	FHitResult Hit(1.f);
+	MoveUpdatedComponent(Delta, PawnRotation, true, &Hit);
+
+	// Check result of forward movement
+	if (Hit.bBlockingHit)
+	{
+		if (Hit.bStartPenetrating)
+		{
+			// Undo movement
+			ScopedStepUpMovement.RevertMove();
+			return false;
+		}
+
+		// If we hit something above us and also something ahead of us, we should notify about the upward hit as well.
+		// The forward hit will be handled later (in the bSteppedOver case below).
+		// In the case of hitting something above but not forward, we are not blocked from moving so we don't need the notification.
+		if (SweepUpHit.bBlockingHit && Hit.bBlockingHit)
+		{
+			HandleImpact(SweepUpHit);
+		}
+
+		// pawn ran into a wall
+		HandleImpact(Hit);
+		if (IsFalling())
+		{
+			return true;
+		}
+
+		// adjust and try again
+		const float ForwardHitTime = Hit.Time;
+		const float ForwardSlideAmount = SlideAlongSurface(Delta, 1.f - Hit.Time, Hit.Normal, Hit, true);
+
+		if (IsFalling())
+		{
+			ScopedStepUpMovement.RevertMove();
+			return false;
+		}
+
+		// If both the forward hit and the deflection got us nowhere, there is no point in this step up.
+		if (ForwardHitTime == 0.f && ForwardSlideAmount == 0.f)
+		{
+			ScopedStepUpMovement.RevertMove();
+			return false;
+		}
+	}
+
+	// Step down
+	MoveUpdatedComponent(GravDir * StepTravelDownHeight, UpdatedComponent->GetComponentQuat(), true, &Hit);
+
+	// If step down was initially penetrating abort the step up
+	if (Hit.bStartPenetrating)
+	{
+		ScopedStepUpMovement.RevertMove();
+		return false;
+	}
+
+	FStepDownResult StepDownResult;
+	if (Hit.IsValidBlockingHit())
+	{
+		// See if this step sequence would have allowed us to travel higher than our max step height allows.
+		const float DeltaZ = (Hit.ImpactPoint | -GravDir) - PawnFloorPointZ;
+		if (DeltaZ > MaxStepHeight)
+		{
+			// UE_LOG(LogCharacterMovement, VeryVerbose, TEXT("- Reject StepUp (too high Height %.3f) up from floor base %f to %f"), DeltaZ, PawnInitialFloorBaseZ, NewLocation.Z);
+			ScopedStepUpMovement.RevertMove();
+			return false;
+		}
+
+		// Reject unwalkable surface normals here.
+		if (!IsWalkable(Hit))
+		{
+			// Reject if normal opposes movement direction
+			const bool bNormalTowardsMe = (Delta | Hit.ImpactNormal) < 0.f;
+			if (bNormalTowardsMe)
+			{
+				// UE_LOG(LogCharacterMovement, VeryVerbose, TEXT("- Reject StepUp (unwalkable normal %s opposed to movement)"), *Hit.ImpactNormal.ToString());
+				ScopedStepUpMovement.RevertMove();
+				return false;
+			}
+
+			// Also reject if we would end up being higher than our starting location by stepping down.
+			// It's fine to step down onto an unwalkable normal below us, we will just slide off. Rejecting those moves would prevent us from being able to walk off the edge.
+			if ((Hit.Location | -GravDir) > OldLocationZ)
+			{
+				// UE_LOG(LogCharacterMovement, VeryVerbose, TEXT("- Reject StepUp (unwalkable normal %s above old position)"), *Hit.ImpactNormal.ToString());
+				ScopedStepUpMovement.RevertMove();
+				return false;
+			}
+		}
+
+		// Reject moves where the downward sweep hit something very close to the edge of the capsule. This maintains consistency with FindFloor as well.
+		if (!IsWithinEdgeTolerance(Hit.Location, Hit.ImpactPoint, PawnRadius))
+		{
+			// UE_LOG(LogCharacterMovement, VeryVerbose, TEXT("- Reject StepUp (outside edge tolerance)"));
+			ScopedStepUpMovement.RevertMove();
+			return false;
+		}
+	}
+
+	// Don't recalculate velocity based on this height adjustment, if considering vertical adjustments.
+	bJustTeleported |= !bMaintainHorizontalGroundVelocity;
+
+	return true;
 }
 
 void URunnerMovementComponent::PhysFalling2(float deltaTime, int32 Iterations)
@@ -1465,6 +1520,17 @@ void URunnerMovementComponent::PhysFalling2(float deltaTime, int32 Iterations)
 			}
 			else
 			{
+				// 尝试能否 step up
+				auto HorizontalAdjusted = FVector::VectorPlaneProject(Adjusted, GetGravityDirection());
+				if (StepUpWhenFalling(GetGravityDirection(), HorizontalAdjusted * (1.f - Hit.Time), Hit))
+				{
+					continue;
+				}
+				else
+				{
+					UE_LOG(LogRunnerMovement, Log, TEXT("PhysFalling: StepUp failed"));
+				}
+
 				// Compute impact deflection based on final velocity, not integration step.
 				// This allows us to compute a new velocity from the deflected vector, and ensures the full gravity effect is included in the slide result.
 				Adjusted = Velocity * timeTick;
@@ -1492,7 +1558,66 @@ void URunnerMovementComponent::PhysFalling2(float deltaTime, int32 Iterations)
 				{
 					return;
 				}
-				remainingTime += subTimeTickRemaining;
+
+				// Limit air control based on what we hit.
+				// We moved to the impact point using air control, but may want to deflect from there based on a limited air control acceleration.
+				FVector VelocityNoAirControl = OldVelocity;
+				FVector AirControlAccel = Acceleration;
+				if (bHasLimitedAirControl)
+				{
+					// Compute VelocityNoAirControl
+					{
+						// Find velocity *without* acceleration.
+						TGuardValue<FVector> RestoreAcceleration(Acceleration, FVector::ZeroVector);
+						TGuardValue<FVector> RestoreVelocity(Velocity, OldVelocity);
+						if (HasCustomGravity())
+						{
+							Velocity = ProjectToGravityFloor(Velocity);
+							const FVector GravityRelativeOffset = OldVelocity - Velocity;
+							CalcVelocity(timeTick, FallingLateralFriction, false, MaxDecel);
+							VelocityNoAirControl = Velocity + GravityRelativeOffset;
+						}
+						else
+						{
+							Velocity.Z = 0.f;
+							CalcVelocity(timeTick, FallingLateralFriction, false, MaxDecel);
+							VelocityNoAirControl = FVector(Velocity.X, Velocity.Y, OldVelocity.Z);
+						}
+
+						VelocityNoAirControl = NewFallVelocity(VelocityNoAirControl, Gravity, GravityTime);
+					}
+
+					const bool bCheckLandingSpot = false; // we already checked above.
+					AirControlAccel = (Velocity - VelocityNoAirControl) / timeTick;
+					const FVector AirControlDeltaV = LimitAirControl(LastMoveTimeSlice, AirControlAccel, Hit, bCheckLandingSpot) * LastMoveTimeSlice;
+					Adjusted = (VelocityNoAirControl + AirControlDeltaV) * LastMoveTimeSlice;
+				}
+
+				const FVector OldHitNormal = Hit.Normal;
+				const FVector OldHitImpactNormal = Hit.ImpactNormal;
+				FVector Delta = ComputeSlideVector(Adjusted, 1.f - Hit.Time, OldHitNormal, Hit);
+
+				if (subTimeTickRemaining > UE_KINDA_SMALL_NUMBER && (Delta | Adjusted) > 0.f)
+				{
+					// Move in deflected direction.
+					SafeMoveUpdatedComponent(Delta, PawnRotation, true, Hit);
+
+					if (Hit.bBlockingHit)
+					{
+						// hit second wall
+						LastMoveTimeSlice = subTimeTickRemaining;
+						subTimeTickRemaining = subTimeTickRemaining * (1.f - Hit.Time);
+
+						if (IsValidLandingSpot(UpdatedComponent->GetComponentLocation(), Hit))
+						{
+							remainingTime += subTimeTickRemaining;
+							ProcessLanded(Hit, remainingTime, Iterations);
+							return;
+						}
+
+						HandleImpact(Hit, LastMoveTimeSlice, Delta);
+					}
+				}
 			}
 		}
 
@@ -1553,4 +1678,88 @@ void URunnerMovementComponent::UFuncOnMovementUpdated(float DeltaSeconds, FVecto
 	// UE_LOG(LogRunnerMovement, Log, TEXT("UFuncOnMovementUpdated, OldLocation: %s, OldVelocity: %s, NewLocation: %s, NewVelocity: %s"),
 	// 	*OldLocation.ToString(), *OldVelocity.ToString(),
 	// 	*UpdatedComponent->GetComponentLocation().ToString(), *Velocity.ToString());
+}
+
+void URunnerMovementComponent::OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode)
+{
+	Super::OnMovementModeChanged(PreviousMovementMode, PreviousCustomMode);
+
+	if (MovementMode == MOVE_Custom)
+	{
+		FlyTime = 0.0f;
+		Velocity.Z = StartZVelocityInFlying;
+		RealTargetHeightInFlying = UpdatedComponent->GetComponentLocation().Z + TargetHeightInFlying;
+
+		LandAudio->SetSound(TakeOffSound);
+		LandAudio->Play();
+		Cast<ARunnerCharacter>(GetOwner())->StartDanceMontage();
+		bHipHop = true;
+	}
+}
+
+void URunnerMovementComponent::PhysCustom(float deltaTime, int32 Iterations)
+{
+	V0 = 3 * TargetHeightInFlying / (2 * TargetTimeInFlying);
+	A = 3 * TargetHeightInFlying / (2 * TargetTimeInFlying * TargetTimeInFlying * TargetTimeInFlying);
+
+	auto NewZ = V0 * FlyTime - A * FlyTime * FlyTime * FlyTime / 3;
+	auto OldFlyTime = FlyTime - deltaTime;
+	auto OldZ = V0 * OldFlyTime - A * OldFlyTime * OldFlyTime * OldFlyTime / 3;
+	auto DeltaZ = NewZ - OldZ;
+
+	if (deltaTime < MIN_TICK_TIME)
+	{
+		return;
+	}
+
+	RestorePreAdditiveRootMotionVelocity();
+
+	if (!HasAnimRootMotion() && !CurrentRootMotion.HasOverrideVelocity())
+	{
+		if (bCheatFlying && Acceleration.IsZero())
+		{
+			Velocity = FVector::ZeroVector;
+		}
+		const float Friction = 0.5f * GetPhysicsVolume()->FluidFriction;
+		CalcVelocity(deltaTime, Friction, true, GetMaxBrakingDeceleration());
+	}
+
+	ApplyRootMotionToVelocity(deltaTime);
+
+	FVector OldLocation = UpdatedComponent->GetComponentLocation();
+	FVector Adjusted = Velocity * deltaTime;
+	Adjusted.Z = DeltaZ;
+	FHitResult Hit(1.f);
+	SafeMoveUpdatedComponent(Adjusted, UpdatedComponent->GetComponentQuat(), true, Hit);
+
+	if (Hit.Time < 1.f)
+	{
+		const FVector VelDir = Velocity.GetSafeNormal();
+		const float UpDown = VelDir | GetGravityDirection();
+
+		bool bSteppedUp = false;
+		if ((FMath::Abs(GetGravitySpaceZ(Hit.ImpactNormal)) < 0.2f) && (UpDown < 0.5f) && (UpDown > -0.2f) && CanStepUp(Hit))
+		{
+			const FVector::FReal StepZ = GetGravitySpaceZ(UpdatedComponent->GetComponentLocation());
+			bSteppedUp = StepUp(GetGravityDirection(), Adjusted * (1.f - Hit.Time), Hit);
+			if (bSteppedUp)
+			{
+				const FVector::FReal LocationZ = GetGravitySpaceZ(UpdatedComponent->GetComponentLocation()) + (GetGravitySpaceZ(OldLocation) - StepZ);
+				SetGravitySpaceZ(OldLocation, LocationZ);
+			}
+		}
+
+		if (!bSteppedUp)
+		{
+			// adjust and try again
+			HandleImpact(Hit, deltaTime, Adjusted);
+			SlideAlongSurface(Adjusted, (1.f - Hit.Time), Hit.Normal, Hit, true);
+		}
+	}
+}
+
+void URunnerMovementComponent::PlayLightningSound()
+{
+	LandAudio->SetSound(LightningSound);
+	LandAudio->Play();
 }

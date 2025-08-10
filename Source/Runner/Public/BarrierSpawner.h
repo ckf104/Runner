@@ -63,23 +63,11 @@ protected:
 	virtual FRotator GetRotationFromSeed(FRotator Seed) const;
 
 public:
-	bool CanSpawnThisBarrier(FInt32Point Tile, FVector2D UVPos, AWorldGenerator* WorldGenerator) const
-	{
-		if (!WorldGenerator->GameStarted())
-		{
-			auto PlayerStartTile = WorldGenerator->GetPlayerStartTile();
-			auto bProximity = FMath::Abs(UVPos.X - 0.5) <= 0.2 && FMath::Abs(UVPos.Y - 0.5) <= 0.2;
-			if (Tile == PlayerStartTile && bProximity)
-			{
-				// 玩家起始位置周围 不允许生成障碍物
-				return false;
-			}
-		}
-		return true;
-	}
+	bool CanSpawnThisBarrier(FInt32Point Tile, FVector2D UVPos, AWorldGenerator* WorldGenerator) const;
 
 	virtual void SpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) {}
-	virtual bool DeferSpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) { return true; }
+	virtual FVector2D PreSpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, AWorldGenerator* WorldGenerator) { return FVector2D::ZeroVector; }
+	virtual bool DeferSpawnBarriers(TArrayView<RandomPoint> Positions, FInt32Point Tile, FVector2D UVPos, AWorldGenerator* WorldGenerator) { return true; }
 	virtual void RemoveTile(FInt32Point Tile) {}
 	virtual int32 GetBarrierCountAnyThread(double RandomValue, int32 Difficulty) const
 	{

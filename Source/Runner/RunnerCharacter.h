@@ -104,6 +104,11 @@ public:
 	void EnterMud();
 	void OutOfMud();
 
+	void EnterFlying();
+	void ExitFlying();
+	void EnterLightning();
+	void ExitLightning();
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skate Controller")
 	float TurnSpeedScale = 0.2f;
 
@@ -116,7 +121,7 @@ public:
 	void StartThrust(EThrustSource ThrustStatus, float ThrustTime);
 	void StopThrust(EThrustSource ThrustStatus);
 	void StartSlowDown(ESlowDownSource SlowDownStatus);
-	void StopSlowDown();
+	void StopSlowDown(ESlowDownSource SlowDownStatus);
 	void StartDown();
 	void StopDown();
 
@@ -214,9 +219,18 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
 	float FlipInterval = 0.5f;
+	
+	UPROPERTY(EditAnywhere, Category = "Items")
+	float LightningDuration = 6.0f;
+
+	float CurrentLightningTime = 0.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Items")
+	TObjectPtr<class UMaterialInterface> LightningMaterial;
 
 	UPROPERTY(EditAnywhere, Category = "Runner")
 	float StartThrustTime = 0.5f;
+
 
 	void UpdateFlicker(float Delta);
 
@@ -227,6 +241,8 @@ public:
 	// 触发伤害的间隔时间
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Evil Chase")
 	float DamageInterval = 1.0f;
+
+	float CurrentFlyingTime = 0.0f;
 
 	void CheckEvilChase(float Delta);
 
@@ -243,8 +259,10 @@ public:
 	// 是否处于 slow down, thrusting 状态，它们有多种来源
 	// 因此使用 int8 来表示状态
 	int8 Thrusting = 0;
-	int8 SlowDown = 0;
+	int8 MudSlowDown = 0;
+	int8 BadLandSlowDown = 0;
 	int8 InMud = 0; // 是否在泥潭中
+	bool bTriggerMudSlowDown = false;
 
 	float FreeThrustTime = 0.0f;
 
@@ -283,11 +301,16 @@ public:
 	class UNiagaraComponent* LThrust;
 	class UNiagaraComponent* RThrust;
 	class UNiagaraComponent* SlowDownComp;
+	class UPrimitiveComponent* ImpactWaveComp;
+	// class UNiagaraComponent* BottomThrust1;
+	// class UNiagaraComponent* BottomThrust2;
 	class UAudioComponent* EngineSoundComp;
 	class UAudioComponent* DamageAudio;
 	class UAudioComponent* CoinAudio;
 	class UAudioComponent* EvilAudio;
-
+public:
+	class UPrimitiveComponent* AbsorbComp;
+private:
 	UPROPERTY(EditAnywhere, Category = "Sound")
 	bool bAllowInterruptCoinSound = true;
 

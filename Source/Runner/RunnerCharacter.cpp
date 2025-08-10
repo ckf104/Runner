@@ -3,6 +3,7 @@
 #include "RunnerCharacter.h"
 #include "Animation/AnimInstance.h"
 #include "Blueprint/UserWidget.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/AudioComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -11,6 +12,7 @@
 #include "Components/CapsuleComponent.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
@@ -93,6 +95,16 @@ void ARunnerCharacter::BeginPlay()
 			SlowDownComp = Component;
 			SlowDownComp->Deactivate();
 		}
+		else if (Component->GetName().Contains(TEXT("BottomThrust1")))
+		{
+			// BottomThrust1 = Component;
+			// BottomThrust1->Deactivate();
+		}
+		else if (Component->GetName().Contains(TEXT("BottomThrust2")))
+		{
+			// BottomThrust2 = Component;
+			// BottomThrust2->Deactivate();
+		}
 		return true; // Continue iterating
 	});
 
@@ -100,6 +112,12 @@ void ARunnerCharacter::BeginPlay()
 		if (Component->ComponentHasTag("Absorb"))
 		{
 			Component->OnComponentBeginOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlap);
+			Component->OnComponentEndOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlapEnd);
+			AbsorbComp = Component;
+		}
+		if (Component->GetName().Equals(TEXT("ImpactWave")))
+		{
+			ImpactWaveComp = Component;
 		}
 	});
 
@@ -122,8 +140,8 @@ void ARunnerCharacter::BeginPlay()
 		}
 	});
 
-	GetCapsuleComponent()->OnComponentBeginOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlap);
-	GetCapsuleComponent()->OnComponentEndOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlapEnd);
+	// GetCapsuleComponent()->OnComponentBeginOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlap);
+	// GetCapsuleComponent()->OnComponentEndOverlap.AddDynamic(this, &ARunnerCharacter::DealBarrierOverlapEnd);
 	InitUI();
 
 	GetMesh()->CreateDynamicMaterialInstance(0);
@@ -206,6 +224,7 @@ void ARunnerCharacter::Tick(float Delta)
 	// 	// UE_LOG(LogRunnerCharacter, Log, TEXT("ARunnerCharacter::Tick called with Delta: %s"), *GetVelocity().ToString());
 	// }
 
+	// 更新 Thrust
 	if (Thrusting & static_cast<int8>(EThrustSource::FreeThrust))
 	{
 		FreeThrustTime -= Delta;
@@ -217,7 +236,7 @@ void ARunnerCharacter::Tick(float Delta)
 	}
 	else if (Thrusting & static_cast<int8>(EThrustSource::UserThrust))
 	{
-		Mana -= bInfiniteHealth ? 0.0f :ManaReduceSpeed * Delta;
+		Mana -= bInfiniteHealth ? 0.0f : ManaReduceSpeed * Delta;
 		if (Mana <= 0.0f)
 		{
 			Mana = 0.0f;
@@ -225,9 +244,38 @@ void ARunnerCharacter::Tick(float Delta)
 		}
 		GameUIWidget->UpdateGas(Mana / MaxMana);
 	}
+	// 更新 mud
+	auto* MoveComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+	auto bShouldInMud = MoveComp->IsWalking() && MoveComp->CurrentFloor.HitResult.GetActor() == WorldGenerator && InMud > 0;
+	if (bShouldInMud && !bTriggerMudSlowDown)
+	{
+		bTriggerMudSlowDown = true;
+		StartSlowDown(ESlowDownSource::Mud);
+	}
+	else if (!bShouldInMud && bTriggerMudSlowDown)
+	{
+		bTriggerMudSlowDown = false;
+		StopSlowDown(ESlowDownSource::Mud);
+	}
 
 	CheckEvilChase(Delta);
 	UpdateFlicker(Delta);
+
+	// 更新移动状态
+	auto OldFlyingTime = CurrentFlyingTime;
+	CurrentFlyingTime -= Delta;
+	if (CurrentFlyingTime <= 0.0f && OldFlyingTime > 0.0f)
+	{
+		ExitFlying();
+	}
+
+	// 更新闪电状态
+	auto OldLightningTime = CurrentLightningTime;
+	CurrentLightningTime -= Delta;
+	if (CurrentLightningTime <= 0.0f && OldLightningTime > 0.0f)
+	{
+		ExitLightning();
+	}
 }
 
 void ARunnerCharacter::CheckEvilChase(float Delta)
@@ -426,7 +474,14 @@ void ARunnerCharacter::StopThrust(EThrustSource ThrustStatus)
 
 void ARunnerCharacter::StartSlowDown(ESlowDownSource SlowDownStatus)
 {
-	SlowDown++;
+	if (SlowDownStatus == ESlowDownSource::Mud)
+	{
+		MudSlowDown++;
+	}
+	else
+	{
+		BadLandSlowDown++;
+	}
 	if (SlowDownStatus == ESlowDownSource::Mud)
 	{
 		SlowDownComp->SetVariableLinearColor(TEXT("ArrowColor"), FLinearColor(0.06f, 0.06f, 0.06f, 1.0f));
@@ -436,22 +491,26 @@ void ARunnerCharacter::StartSlowDown(ESlowDownSource SlowDownStatus)
 		SlowDownComp->SetVariableLinearColor(TEXT("ArrowColor"), FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
 	}
 	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
-	MovementComp->StartSlowDown();
-	if (SlowDown == 1)
+	if (MudSlowDown + BadLandSlowDown == 1)
 	{
 		SlowDownComp->Activate();
 	}
 }
 
-void ARunnerCharacter::StopSlowDown()
+void ARunnerCharacter::StopSlowDown(ESlowDownSource SlowDownStatus)
 {
-	SlowDown--;
-	// ensure(SlowDown >= 0);
-	auto* MovementComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
-	MovementComp->StopSlowDown();
-	if (SlowDown <= 0)
+	if (SlowDownStatus == ESlowDownSource::Mud)
 	{
-		SlowDown = 0;
+		MudSlowDown--;
+	}
+	else
+	{
+		BadLandSlowDown--;
+	}
+	if (MudSlowDown <= 0 && BadLandSlowDown <= 0)
+	{
+		MudSlowDown = 0;
+		BadLandSlowDown = 0;
 		SlowDownComp->Deactivate();
 	}
 }
@@ -628,7 +687,23 @@ void ARunnerCharacter::DealBarrierOverlap(UPrimitiveComponent* OverlappedCompone
 		EnterMud();
 		// UE_LOG(LogRunnerCharacter, Warning, TEXT("ARunnerCharacter::DealBarrierOverlap: Hit Mud %s"), *OtherActor->GetName());
 	}
-	else
+	else if (OtherComp->ComponentHasTag("Jumping"))
+	{
+		if (!CoinAudio->IsPlaying() || bAllowInterruptCoinSound)
+		{
+			CoinAudio->Play();
+		}
+		EnterFlying();
+	}
+	else if (OtherComp->ComponentHasTag("Lightning"))
+	{
+		if (!CoinAudio->IsPlaying() || bAllowInterruptCoinSound)
+		{
+			CoinAudio->Play();
+		}
+		EnterLightning();
+	}
+	else if (CurrentLightningTime <= 0.0f)
 	{
 		auto HitSource = EHitSource::Default;
 		if (OtherActor->ActorHasTag("Laser"))
@@ -657,28 +732,12 @@ void ARunnerCharacter::DealBarrierOverlapEnd(UPrimitiveComponent* OverlappedComp
 void ARunnerCharacter::EnterMud()
 {
 	InMud++;
-
-	// 当处于地面上时，进入泥潭触发 slow down
-	auto* RunnerMoveComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
-	auto* FloorActor = RunnerMoveComp->CurrentFloor.HitResult.GetActor();
-	if (FloorActor == WorldGenerator && InMud == 1)
-	{
-		StartSlowDown(ESlowDownSource::Mud);
-	}
 }
 
 void ARunnerCharacter::OutOfMud()
 {
 	InMud--;
 	ensure(InMud >= 0);
-
-	// 当离开泥潭时，停止 slow down
-	auto* RunnerMoveComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
-	auto* FloorActor = RunnerMoveComp->CurrentFloor.HitResult.GetActor();
-	if (FloorActor == WorldGenerator && InMud == 0)
-	{
-		StopSlowDown();
-	}
 }
 
 void ARunnerCharacter::FellOutOfWorld(const class UDamageType& dmgType)
@@ -714,4 +773,42 @@ void ARunnerCharacter::AddGas(float Percentage)
 			Mana = MaxMana;
 		}
 	}
+}
+
+void ARunnerCharacter::EnterFlying()
+{
+	// BottomThrust1->Activate();
+	// BottomThrust2->Activate();
+	if (CurrentFlyingTime <= 0.0f)
+	{
+		CurrentFlyingTime = Cast<URunnerMovementComponent>(GetCharacterMovement())->TargetTimeInFlying;
+		StartThrust(EThrustSource::FreeThrust, CurrentFlyingTime);
+		GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Custom);
+	}
+}
+
+void ARunnerCharacter::ExitFlying()
+{
+	// BottomThrust1->Deactivate();
+	// BottomThrust2->Deactivate();
+	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Falling);
+}
+
+void ARunnerCharacter::EnterLightning()
+{
+	StartThrust(EThrustSource::FreeThrust, LightningDuration);
+	Cast<URunnerMovementComponent>(GetCharacterMovement())->PlayLightningSound();
+	auto OldLightningTime = CurrentLightningTime;
+	CurrentLightningTime = LightningDuration;
+	if (OldLightningTime <= 0.0f)
+	{
+		ImpactWaveComp->SetHiddenInGame(false);
+		FollowCamera->PostProcessSettings.AddBlendable(LightningMaterial, 1.0f);
+	}
+}
+
+void ARunnerCharacter::ExitLightning()
+{
+	ImpactWaveComp->SetHiddenInGame(true);
+	FollowCamera->PostProcessSettings.RemoveBlendable(LightningMaterial);
 }

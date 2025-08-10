@@ -14,6 +14,7 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/PlayerStart.h"
+#include "GoldCoinSpawner.h"
 #include "HAL/Platform.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMaterialLibrary.h"
@@ -162,22 +163,25 @@ void AWorldGenerator::SortBarrierSpawners()
 	BarrierSpawners.Sort([](const TObjectPtr<ABarrierSpawner>& A, const TObjectPtr<ABarrierSpawner>& B) {
 		if (A->bDeferSpawn)
 		{
-			return false; // Defer spawn barriers should be at the end
+			return true; // Defer spawn barriers should be at the first
 		}
 		else if (B->bDeferSpawn)
 		{
-			return true; // Defer spawn barriers should be at the end
+			return false; // Defer spawn barriers should be at the first
 		}
-		if (A->BarrierGroup < 0)
+		// Hacking，我主要想把激光排在前边
+		if (A->BarrierGroup == 1)
 		{
-			return false; // Group -1 barriers should be at the end
+			return true; // Group 1 barriers should be at the first
 		}
-		else if (B->BarrierGroup < 0)
+		else if (B->BarrierGroup == 1)
 		{
-			return true; // Group -1 barriers should be at the end
+			return false; // Group 1 barriers should be at the first
 		}
 		return A->BarrierGroup < B->BarrierGroup;
 	});
+
+	ensure(BarrierSpawners[0]->IsA(AGoldCoinSpawner::StaticClass()));
 }
 
 void AWorldGenerator::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -698,6 +702,7 @@ void AWorldGenerator::CreateGroundMesh(int32 BufferIndex)
 			{
 				BarrierSpawner->RemoveTile(OldTile);
 			}
+			RemoveSpecialLaserPos(OldTile.X);	
 		}
 		PMC->CreateMeshSection(SectionIdx, VerticesBuffer, TrianglesBuffer, NormalsBuffer, UV0Buffer, UV1Buffer, TArray<FVector2D>(), TArray<FVector2D>(), TArray<FColor>(), TangentsBuffer, true);
 		PMC->SetMaterial(SectionIdx, DynamicMat);
@@ -733,7 +738,9 @@ void AWorldGenerator::CreateBarriers(int32 BufferIndex, int32 BarrierIndex)
 			TArrayView<RandomPoint> RandomPointsView(&RandomPoints[StartIdx], BarCount);
 			if (BarrierSpawners[Idx]->bDeferSpawn)
 			{
-				CachedSpawnData.Add(FIntVector(Tile.X, Tile.Y, Idx), TArray<RandomPoint>(RandomPointsView));
+				auto PosUV = BarrierSpawners[Idx]->PreSpawnBarriers(RandomPointsView, Tile, this);
+				auto Key = FIntVector(Tile.X, Tile.Y, Idx);
+				CachedSpawnData.Add(Key, TPair<TArray<RandomPoint>, FVector2D>(TArray<RandomPoint>(RandomPointsView), PosUV));
 			}
 			else
 			{
@@ -865,6 +872,7 @@ void AWorldGenerator::PMCClear(int32 ReplaceableIndex)
 		{
 			Spawner->RemoveTile(Tile);
 		}
+		RemoveSpecialLaserPos(Tile.X);
 	}
 	UE_LOG(LogWorldGenerator, Log, TEXT("Clearing PMC %d, removing %d tiles"), ReplaceableIndex, TileMap[ReplaceableIndex].Num());
 	TileMap[ReplaceableIndex].Empty(); // Clear the tile map for this PMC
@@ -959,6 +967,7 @@ bool AWorldGenerator::ClearInactivePMCTiles()
 			{
 				Spawner->RemoveTile(Tile);
 			}
+			RemoveSpecialLaserPos(Tile.X);
 
 			// 删除 CachedSpawnData 中对应 tile 的数据
 			auto RemovedNumber = CachedSpawnData.Remove(FIntVector(Tile.X, Tile.Y, PMCIndex));
@@ -1000,11 +1009,12 @@ void AWorldGenerator::GenerateNewTiles()
 		{
 			auto Tile = FInt32Point(It.Key().X, It.Key().Y);
 			int32 BarrierIndex = It.Key().Z;
-			auto bSuccess = BarrierSpawners[BarrierIndex]->DeferSpawnBarriers(It.Value(), Tile, this);
+			auto bSuccess = BarrierSpawners[BarrierIndex]->DeferSpawnBarriers(It.Value().Key, Tile, It.Value().Value, this);
 			if (bSuccess)
 			{
 				// UE_LOG(LogWorldGenerator, Warning, TEXT("Spawner %d, tile %s spawned barriers from CachedSpawnData!"), ReplacableIndex, *Tile.ToString());
 				It.RemoveCurrent();
+				break;
 			}
 		}
 	}
@@ -1087,7 +1097,7 @@ bool AWorldGenerator::ConditionalMoveWorldOrigin()
 		EvilPos -= MoveOriginDistance;
 
 		// 更新 Cached Spawned Data 中的 tile 坐标
-		TMap<FIntVector, TArray<RandomPoint>> NewCachedData;
+		TMap<FIntVector, TPair<TArray<RandomPoint>, FVector2D>> NewCachedData;
 		NewCachedData.Reserve(CachedSpawnData.Num());
 		for (auto& It : CachedSpawnData)
 		{
@@ -1206,7 +1216,6 @@ FVector AWorldGenerator::GetVisualWorldPositionFromUV(FVector2D UV, FInt32Point 
 
 	auto WPos = BarycentricCoords.X * Vertex1 + BarycentricCoords.Y * Vertex2 + (1 - BarycentricCoords.X - BarycentricCoords.Y) * Vertex3;
 	auto RetPos = WPos + PMC->GetComponentLocation();
-	ensure(RetPos.X <= 140000.0);
 	return RetPos;
 }
 
@@ -1359,6 +1368,29 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, int32 
 	EachSpawnerCounts.SetNumUninitialized(BarrierSpawners.Num(), EAllowShrinking::No);
 
 	auto StartIndex = 0;
+	for (; StartIndex < BarrierSpawners.Num() && BarrierSpawners[StartIndex]->BarrierGroup < 0; ++StartIndex)
+	{
+		auto BarCount = BarrierSpawners[StartIndex]->GetBarrierCountAnyThread(UniformGenerator(RandomEngine), Difficulty);
+		TaskDataBuffers[BufferIndex].BarriersCount[StartIndex] = BarCount;
+		auto OldPosCnt = RandomPoints.Num();
+		RandomPoints.SetNum(OldPosCnt + BarCount, EAllowShrinking::No);
+		for (int32 i = OldPosCnt; i < OldPosCnt + BarCount; ++i)
+		{
+			auto& Point = RandomPoints[i];
+			auto UVPos = FVector2D::ZeroVector;
+			UVPos.X = UniformGenerator(RandomEngine);
+			UVPos.Y = UniformGenerator(RandomEngine);
+			Point.UVPos = UVPos;
+			auto Rotation = FRotator::ZeroRotator;
+			Rotation.Yaw = UniformGenerator(RandomEngine);
+			Rotation.Pitch = UniformGenerator(RandomEngine);
+			Rotation.Roll = UniformGenerator(RandomEngine);
+
+			Point.Rotation = Rotation;
+			Point.Scale = FVector(1.0, 1.0, 1.0); // 设置默认缩放
+		}
+	}
+
 	while (StartIndex < BarrierSpawners.Num() && BarrierSpawners[StartIndex]->BarrierGroup >= 0)
 	{
 		int32 GroupIndex = BarrierSpawners[StartIndex]->BarrierGroup;
@@ -1463,29 +1495,7 @@ void AWorldGenerator::GeneratePoissonRandomPointsAsync(int32 BufferIndex, int32 
 		StartIndex = EndIndex; // 更新 StartIndex 到下一个分组的起始位置
 	}
 
-	for (int32 Idx = StartIndex; Idx < BarrierSpawners.Num(); ++Idx)
-	{
-		ensure(BarrierSpawners[Idx]->BarrierGroup < 0);
-		auto BarCount = BarrierSpawners[Idx]->GetBarrierCountAnyThread(UniformGenerator(RandomEngine), Difficulty);
-		TaskDataBuffers[BufferIndex].BarriersCount[Idx] = BarCount;
-		auto OldPosCnt = RandomPoints.Num();
-		RandomPoints.SetNum(OldPosCnt + BarCount, EAllowShrinking::No);
-		for (int32 i = OldPosCnt; i < OldPosCnt + BarCount; ++i)
-		{
-			auto& Point = RandomPoints[i];
-			auto UVPos = FVector2D::ZeroVector;
-			UVPos.X = UniformGenerator(RandomEngine);
-			UVPos.Y = UniformGenerator(RandomEngine);
-			Point.UVPos = UVPos;
-			auto Rotation = FRotator::ZeroRotator;
-			Rotation.Yaw = UniformGenerator(RandomEngine);
-			Rotation.Pitch = UniformGenerator(RandomEngine);
-			Rotation.Roll = UniformGenerator(RandomEngine);
-
-			Point.Rotation = Rotation;
-			Point.Scale = FVector(1.0, 1.0, 1.0); // 设置默认缩放
-		}
-	}
+	ensure(StartIndex == BarrierSpawners.Num()); // 确保所有 Spawner 都被处理
 }
 
 template <class T>

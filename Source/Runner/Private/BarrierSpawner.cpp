@@ -42,11 +42,11 @@ void ABarrierSpawner::TransformAlign(FVector& Location, FRotator& Rotation, clas
 	if (AlignMode == EAlignMode::AlignNormal)
 	{
 		auto Normal = WorldGenerator->GetNormalFromHorizontalPos(FVector2D(Location));
-		
+
 		auto ForwardDir = FRotator(0.0, Rotation.Yaw, 0.0).Vector();
 		// 取 80 是为了避免超出边界
 		auto ForwardPos = Location + ForwardDir * FMath::Min((BarrierRadius / 2), 80.0f);
-		
+
 		ForwardPos.Z = WorldGenerator->GetVisualHeightFromHorizontalPos(FVector2D(ForwardPos));
 		auto Pitch = (ForwardPos - Location).GetSafeNormal();
 
@@ -78,4 +78,44 @@ void ABarrierSpawner::TransformAlign(FVector& Location, FRotator& Rotation, clas
 	{
 		Location += FVector(0, 0, BarrierOffset);
 	}
+}
+
+bool ABarrierSpawner::CanSpawnThisBarrier(FInt32Point Tile, FVector2D UVPos, AWorldGenerator* WorldGenerator) const
+{
+	if (!WorldGenerator->GameStarted())
+	{
+		auto PlayerStartTile = WorldGenerator->GetPlayerStartTile();
+		auto bProximity = FMath::Abs(UVPos.X - 0.5) <= 0.2 && FMath::Abs(UVPos.Y - 0.5) <= 0.2;
+		if (Tile == PlayerStartTile && bProximity)
+		{
+			// 玩家起始位置周围 不允许生成障碍物
+			return false;
+		}
+	}
+	else
+	{
+		for (const auto& It : WorldGenerator->CachedSpawnData)
+		{
+			if (It.Key.X == Tile.X && It.Key.Y == Tile.Y)
+			{
+				auto PosUV = It.Value.Value;
+				auto bProximity = FMath::Abs(PosUV.X - UVPos.X) <= 0.15 && FMath::Abs(PosUV.Y - UVPos.Y) <= 0.15;
+				if (bProximity)
+				{
+					return false;
+				}
+			}
+		}
+		for (auto LaserPos : WorldGenerator->SpecialLaserPos)
+		{
+			// 激光位置不允许生成障碍物
+			auto BarrierPos = FMath::Fmod(Tile.X + UVPos.X, double(WorldGenerator->MoveOriginXTile));
+			auto Distance = FMath::Abs(LaserPos - BarrierPos);
+			if (Distance < 0.05 || Distance > (double(WorldGenerator->MoveOriginXTile) - 0.05))
+			{
+				return false;
+			}
+		}
+	}
+	return true;
 }

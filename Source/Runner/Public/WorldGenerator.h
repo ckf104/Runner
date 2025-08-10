@@ -232,10 +232,15 @@ private:
 	int32 ActivePMCIndex = 0; // 当前活跃的 PMC 索引
 public:	
 	FOnWorldOriginChanged OnWorldOriginChanged; // 世界原点改变时的回调
-private:
 	// 缓存延迟 spawn 的 spawner 需要的数据
-	mutable TMap<FIntVector, TArray<RandomPoint>> CachedSpawnData;
-
+	TArray<double> SpecialLaserPos;
+	void RemoveSpecialLaserPos(int32 TileX)
+	{
+		TileX = (TileX + MoveOriginXTile) % MoveOriginXTile;
+		SpecialLaserPos.RemoveAll([TileX](double Pos) { return FMath::FloorToInt32(Pos) == TileX; });
+	}
+	mutable TMap<FIntVector, TPair<TArray<RandomPoint>, FVector2D> > CachedSpawnData;
+private:
 	mutable TArray<FInt32Point> TileMap[MaxRegionCount]; // 用于存储生成的方格位置
 
 	// TArray<FVector> VerticesBuffer;

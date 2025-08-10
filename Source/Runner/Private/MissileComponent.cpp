@@ -35,7 +35,7 @@ FVector UMissileComponent::PredictPlayerPos(FVector PlayerPos)
 	auto Speed = TotalDistance / TotalTime;
 	auto CenterPos = FVector2D(PlayerPos.X + Speed * MissileReachTime, PlayerPos.Y);
 
-	auto Angle = FMath::RandRange(0.0, 360.0); // 随机角度
+	auto Angle = FMath::RandRange(-90.0, 90.0); // 随机角度
 	auto Rand = FMath::RandRange(0.0, 1.0);
 	auto PowRand = FMath::Pow(Rand, double(Tension)); // 根据 Tension 调整随机性
 
