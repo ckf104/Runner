@@ -477,6 +477,8 @@ void ARunnerCharacter::StartSlowDown(ESlowDownSource SlowDownStatus)
 	if (SlowDownStatus == ESlowDownSource::Mud)
 	{
 		MudSlowDown++;
+		auto MoveComp = Cast<URunnerMovementComponent>(GetCharacterMovement());
+		MoveComp->ReduceSpeedInMud();	
 	}
 	else
 	{

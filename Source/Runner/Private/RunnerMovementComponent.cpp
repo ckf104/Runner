@@ -807,11 +807,11 @@ float URunnerMovementComponent::GetMaxSpeed() const
 	auto Scale = 1.0f;
 	if (Runner->MudSlowDown)
 	{
-		Scale = MudReduceSpeedScale;
+		Scale = FMath::Min(MudReduceSpeedScale, Scale);
 	}
-	else if (Runner->BadLandSlowDown)
+	if (Runner->BadLandSlowDown)
 	{
-		Scale = BadLandReduceSpeedScale;
+		Scale = FMath::Min(BadLandReduceSpeedScale, Scale);
 	}
 	return Ret * Scale;
 }
@@ -1762,4 +1762,16 @@ void URunnerMovementComponent::PlayLightningSound()
 {
 	LandAudio->SetSound(LightningSound);
 	LandAudio->Play();
+}
+
+void URunnerMovementComponent::ReduceSpeedInMud()
+{
+	auto MaxSpeed = GetMaxSpeed();
+	auto GroundVelocity = Velocity.Size2D();
+
+	if (GroundVelocity > MaxSpeed)
+	{
+		auto Scale = MaxSpeed / GroundVelocity;
+		Velocity = FVector(Velocity.X * Scale, Velocity.Y * Scale, Velocity.Z);
+	}
 }

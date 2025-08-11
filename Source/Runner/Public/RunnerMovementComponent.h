@@ -287,6 +287,7 @@ protected:
 	void UFuncOnMovementUpdated(float DeltaSeconds, FVector OldLocation, FVector OldVelocity);
 
 public:
+	void ReduceSpeedInMud();
 	void StartThrust() { Thrusting++; }
 	void StopThrust()
 	{

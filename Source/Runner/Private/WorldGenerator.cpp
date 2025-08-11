@@ -229,7 +229,12 @@ void AWorldGenerator::UpdateEvilPos(float DeltaTime)
 	auto PlayerTile = GetPlayerTile();
 	auto TileSizeX = CellSize * XCellNumber;
 
-	auto PlayerX = UGameplayStatics::GetPlayerCharacter(this, 0)->GetActorLocation().X;
+	auto* Player = UGameplayStatics::GetPlayerCharacter(this, 0);
+	if (!Player)
+	{
+		return; // No player character found
+	}
+	auto PlayerX = Player->GetActorLocation().X;
 	auto DistanceIndex = FMath::Clamp(CurrentDifficulty, 0, EvilMaxDistance.Num() - 1);
 	auto MinPos = PlayerX - EvilMaxDistance[DistanceIndex];
 	auto SpeedIndex = FMath::Clamp(CurrentDifficulty, 0, EvilChaseSpeed.Num() - 1);
